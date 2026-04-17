@@ -110,8 +110,12 @@ def _run_scrapers(usuario: Usuario) -> None:
 
     bar.empty()
     if errores:
-        st.warning("⚠️ Sin respuesta de: " + ", ".join(errores))
-    st.success(f"✅ {total} precios actualizados en {len(scraper_classes)} supermercados.")
+        for e in errores:
+            st.warning(f"⚠️ {e}")
+    if total > 0:
+        st.success(f"✅ {total} precios guardados en base de datos.")
+    else:
+        st.error("❌ No se guardó ningún precio. Revisa los avisos de arriba.")
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────

@@ -143,7 +143,7 @@ class BaseScraper(ABC):
         from database.connection import get_connection
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT id FROM supermercados WHERE codigo = ?", (self.CODIGO,)
+                "SELECT id FROM supermercados WHERE codigo = %s", (self.CODIGO,)
             ).fetchone()
         if row is None:
             raise RuntimeError(
