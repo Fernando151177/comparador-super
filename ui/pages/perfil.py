@@ -4,6 +4,7 @@ import streamlit as st
 from auth.session import cerrar_sesion
 from database.repositories.usuarios_repo import UsuariosRepo
 from domain.models import Usuario
+from ordering.supermarket_links import get_by_pais
 
 _DIAS = {
     0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves",
@@ -17,6 +18,7 @@ _PAISES_INV = {v: k for k, v in _PAISES.items()}
 def mostrar(usuario: Usuario) -> None:
     st.title("👤 Mi perfil")
 
+    # ── Datos personales ──────────────────────────────────────────────────────
     with st.form("perfil_form"):
         nombre = st.text_input("Nombre", value=usuario.nombre)
         st.text_input("Email", value=usuario.email, disabled=True,
@@ -48,12 +50,57 @@ def mostrar(usuario: Usuario) -> None:
             dia_compra=_DIAS_INV[dia_label],
         )
         st.success("Preferencias guardadas.")
-        # Refresh usuario in session_state
         updated = UsuariosRepo().get_by_id(usuario.id)
         if updated:
             st.session_state["usuario"] = updated
         st.rerun()
 
+    # ── Hábitos de compra ─────────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🏪 Hábitos de compra")
+    st.caption(
+        "Indica en qué supermercados sueles comprar y cuánto te cuesta "
+        "desplazarte a uno adicional. El optimizador usará estos datos para "
+        "calcular si merece la pena ir a un segundo supermercado."
+    )
+
+    supers_disponibles = get_by_pais(usuario.pais_activo)
+    opciones_nombre = {s["nombre"]: s["codigo"] for s in supers_disponibles}
+    # Preselección: códigos favoritos actuales → nombres
+    favoritos_nombres = [
+        s["nombre"] for s in supers_disponibles
+        if s["codigo"] in usuario.supermercados_favoritos
+    ]
+
+    with st.form("habitos_form"):
+        seleccion = st.multiselect(
+            "Mis supermercados habituales",
+            options=list(opciones_nombre.keys()),
+            default=favoritos_nombres,
+            help="El optimizador en modo 'habitual' solo usará estos supermercados.",
+        )
+        coste = st.number_input(
+            "Coste de desplazamiento a un supermercado extra (€)",
+            min_value=0.0,
+            max_value=20.0,
+            value=float(usuario.coste_desplazamiento),
+            step=0.50,
+            help="Gasolina + tiempo. Se descuenta del ahorro al valorar si merece visitar un supermercado extra.",
+        )
+        save_hab = st.form_submit_button("💾 Guardar hábitos", type="primary")
+
+    if save_hab:
+        repo = UsuariosRepo()
+        codigos = [opciones_nombre[n] for n in seleccion]
+        repo.update_favoritos(usuario.id, codigos)
+        repo.update_coste_desplazamiento(usuario.id, coste)
+        st.success("Hábitos de compra guardados.")
+        updated = repo.get_by_id(usuario.id)
+        if updated:
+            st.session_state["usuario"] = updated
+        st.rerun()
+
+    # ── Seguridad ─────────────────────────────────────────────────────────────
     st.markdown("---")
     st.subheader("Seguridad")
     st.caption(f"Último acceso: {usuario.ultimo_acceso or 'primera vez'}")

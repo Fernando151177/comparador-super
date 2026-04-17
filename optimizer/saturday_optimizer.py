@@ -21,13 +21,22 @@ from database.connection import get_connection
 from domain.models import ItemLista, OptimizerItem, OptimizerResult
 
 
-def optimize_for_user(usuario_id: str, pais: Optional[str] = None) -> OptimizerResult:
+def optimize_for_user(
+    usuario_id: str,
+    pais: Optional[str] = None,
+    modo: str = "oportunidad",
+    favoritos: Optional[list[str]] = None,
+    coste_desplazamiento: float = 0.0,
+) -> OptimizerResult:
     """Builds the optimal shopping plan for a user.
 
     Args:
-        usuario_id: The authenticated user's id.
-        pais:       'ES' | 'PT' | 'AMBOS' — filters supermarkets.
-                    Defaults to the user's pais_activo setting.
+        usuario_id:           The authenticated user's id.
+        pais:                 'ES' | 'PT' | 'AMBOS' — filters supermarkets.
+        modo:                 'habitual'   → solo supermercados favoritos.
+                              'oportunidad'→ todos, penalizando desplazamiento extra.
+        favoritos:            Lista de códigos de supermercados favoritos.
+        coste_desplazamiento: € por cada visita extra más allá del primer favorito.
 
     Returns:
         An OptimizerResult with the full plan and savings breakdown.
@@ -54,6 +63,10 @@ def optimize_for_user(usuario_id: str, pais: Optional[str] = None) -> OptimizerR
 
     precios_repo = PreciosRepo()
     prices = precios_repo.get_prices_for_products(list(product_ids.keys()), pais)
+
+    # Modo habitual: filtrar solo supermercados favoritos
+    if modo == "habitual" and favoritos:
+        prices = [p for p in prices if p["supermercado_codigo"] in favoritos]
 
     # Group prices by product_id
     by_product: dict[int, list[dict]] = {}
@@ -83,7 +96,7 @@ def optimize_for_user(usuario_id: str, pais: Optional[str] = None) -> OptimizerR
                 precio_unitario=round(cheapest["precio"], 2),
                 precio_total=round(cheapest["precio"] * cantidad, 2),
                 precio_kilo=cheapest.get("precio_por_unidad_normalizado"),
-                url_producto=None,  # extended in Sprint 2
+                url_producto=None,
                 ahorro_vs_caro=round((precio_max - cheapest["precio"]) * cantidad, 2),
             )
         )
@@ -95,10 +108,20 @@ def optimize_for_user(usuario_id: str, pais: Optional[str] = None) -> OptimizerR
         por_supermercado.setdefault(item.supermercado_codigo, []).append(item)
         total_optimo += item.precio_total
 
+    # Modo oportunidad: penalizar visitas extra fuera de favoritos
+    coste_extra = 0.0
+    if modo == "oportunidad" and coste_desplazamiento > 0:
+        supers_en_plan = set(por_supermercado.keys())
+        favoritos_set = set(favoritos or [])
+        # Supermercados a visitar que NO son favoritos → cada uno suma coste_desplazamiento
+        extras = supers_en_plan - favoritos_set
+        coste_extra = round(len(extras) * coste_desplazamiento, 2)
+        total_optimo = round(total_optimo + coste_extra, 2)
+
     # What would it cost to buy everything at a single supermarket?
     total_si_uno = _cost_per_single_supermarket(by_product, product_ids, pais)
 
-    # Savings vs. cheapest single-supermarket option
+    # Savings vs. cheapest single-supermarket option (incluyendo coste de desplazamiento)
     cheapest_single = min(total_si_uno.values()) if total_si_uno else total_optimo
     ahorro_total = round(cheapest_single - total_optimo, 2)
 

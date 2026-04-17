@@ -8,6 +8,28 @@ from typing import Optional
 from database.connection import get_connection
 
 
+def get_displacement_adjusted_savings(
+    total_ahorrado: float,
+    supermercados_visitados: int,
+    favoritos_visitados: int,
+    coste_desplazamiento: float,
+) -> float:
+    """Descuenta el coste de desplazamiento a supermercados extra del ahorro bruto.
+
+    Args:
+        total_ahorrado:        Ahorro calculado solo por diferencia de precios.
+        supermercados_visitados: Número de supermercados en el plan.
+        favoritos_visitados:   Cuántos de esos son favoritos del usuario.
+        coste_desplazamiento:  € por visita extra no favorita.
+
+    Returns:
+        Ahorro neto tras descontar el coste de desplazamiento.
+    """
+    extras = max(supermercados_visitados - favoritos_visitados, 0)
+    coste_extra = extras * coste_desplazamiento
+    return max(round(total_ahorrado - coste_extra, 2), 0.0)
+
+
 def get_savings_summary(usuario_id: str) -> dict:
     """Devuelve los totales de ahorro en distintas ventanas temporales.
 

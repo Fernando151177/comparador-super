@@ -71,13 +71,13 @@ def mostrar(usuario: Usuario) -> None:
     hide_list = st.session_state.get("hide_list", False)
 
     if hide_list:
-        _render_comparison(items, prices)
+        _render_comparison(items, prices, usuario)
     else:
         col_list, col_cmp = st.columns([1, 2], gap="medium")
         with col_list:
             _render_list(usuario, items)
         with col_cmp:
-            _render_comparison(items, prices)
+            _render_comparison(items, prices, usuario)
 
 
 # ── Lista de la compra (columna izquierda) ────────────────────────────────────
@@ -150,15 +150,28 @@ def _detect_category(query: str) -> str:
 
 # ── Comparativa de precios (columna derecha) ──────────────────────────────────
 
-def _render_comparison(items: list[dict], prices: list[dict]) -> None:
+def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> None:
     if not prices:
         st.info(
             "No hay precios para hoy. Pulsa **🔄 Consultar supermercados ahora** para actualizar."
         )
         return
 
+    favoritos = usuario.supermercados_favoritos if usuario else []
+
     # Supermercados disponibles hoy
-    supers = sorted({p["supermercado_nombre"] for p in prices})
+    # Construir mapa nombre→codigo para identificar favoritos
+    super_codigos: dict[str, str] = {}
+    for p in prices:
+        super_codigos[p["supermercado_nombre"]] = p.get("supermercado_codigo", "")
+    # Ordenar: favoritos primero, luego el resto alfabético
+    supers_fav = sorted(
+        [n for n, c in super_codigos.items() if c in favoritos]
+    )
+    supers_otros = sorted(
+        [n for n, c in super_codigos.items() if c not in favoritos]
+    )
+    supers = supers_fav + supers_otros
 
     # Matching: query → {super: mejor precio encontrado}
     comparison: dict[str, dict] = {}
@@ -180,7 +193,8 @@ def _render_comparison(items: list[dict], prices: list[dict]) -> None:
         st.markdown("**Producto**")
     for i, s in enumerate(supers):
         with header_cols[i + 1]:
-            st.markdown(f"**{s}**")
+            badge = "⭐ " if super_codigos.get(s, "") in favoritos else ""
+            st.markdown(f"**{badge}{s}**")
 
     st.divider()
 

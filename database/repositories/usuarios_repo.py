@@ -40,6 +40,27 @@ class UsuariosRepo:
                 (usuario_id,),
             )
 
+    def update_favoritos(self, usuario_id: str, codigos: list[str]) -> None:
+        """Guarda la lista de supermercados favoritos del usuario."""
+        import json
+        self._set_config(usuario_id, "supermercados_favoritos", json.dumps(codigos))
+
+    def update_coste_desplazamiento(self, usuario_id: str, coste: float) -> None:
+        """Guarda el coste en € por visita extra a un supermercado."""
+        self._set_config(usuario_id, "coste_desplazamiento", str(coste))
+
+    def _set_config(self, usuario_id: str, clave: str, valor: str) -> None:
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO configuracion_usuario (usuario_id, clave, valor)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (usuario_id, clave) DO UPDATE
+                    SET valor = EXCLUDED.valor, updated_at = now()
+                """,
+                (usuario_id, clave, valor),
+            )
+
     def update_preferences(
         self,
         usuario_id: str,
@@ -86,20 +107,32 @@ class UsuariosRepo:
 
     def get_by_id(self, usuario_id: str) -> Optional[Usuario]:
         with get_connection() as conn:
-            cur = conn.execute(
+            row = conn.execute(
                 "SELECT * FROM usuarios WHERE id = %s", (usuario_id,)
-            )
-            row = cur.fetchone()
-        return self._to_model(row) if row else None
+            ).fetchone()
+            if row is None:
+                return None
+            config = self._load_config(conn, usuario_id)
+        return self._to_model(row, config)
 
     def get_by_email(self, email: str) -> Optional[Usuario]:
         with get_connection() as conn:
-            cur = conn.execute(
+            row = conn.execute(
                 "SELECT * FROM usuarios WHERE LOWER(email) = LOWER(%s)",
                 (email.strip(),),
-            )
-            row = cur.fetchone()
-        return self._to_model(row) if row else None
+            ).fetchone()
+            if row is None:
+                return None
+            config = self._load_config(conn, row["id"])
+        return self._to_model(row, config)
+
+    @staticmethod
+    def _load_config(conn, usuario_id) -> dict:
+        rows = conn.execute(
+            "SELECT clave, valor FROM configuracion_usuario WHERE usuario_id = %s",
+            (str(usuario_id),),
+        ).fetchall()
+        return {r["clave"]: r["valor"] for r in rows}
 
     def list_active(self) -> list[Usuario]:
         with get_connection() as conn:
@@ -121,7 +154,17 @@ class UsuariosRepo:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _to_model(row: dict) -> Usuario:
+    def _to_model(row: dict, config: dict | None = None) -> Usuario:
+        import json
+        cfg = config or {}
+        try:
+            favoritos = json.loads(cfg.get("supermercados_favoritos", "[]"))
+        except Exception:
+            favoritos = []
+        try:
+            coste = float(cfg.get("coste_desplazamiento", "0"))
+        except Exception:
+            coste = 0.0
         return Usuario(
             id=str(row["id"]),
             nombre=row["nombre"],
@@ -133,4 +176,6 @@ class UsuariosRepo:
             created_at=str(row["created_at"]),
             ultimo_acceso=str(row["ultimo_acceso"]) if row["ultimo_acceso"] else None,
             activo=bool(row["activo"]),
+            supermercados_favoritos=favoritos,
+            coste_desplazamiento=coste,
         )

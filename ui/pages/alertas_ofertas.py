@@ -12,17 +12,25 @@ def mostrar(usuario: Usuario) -> None:
 
     repo = AlertasRepo()
 
+    favoritos = usuario.supermercados_favoritos
+
     # ── Bajadas de precio detectadas hoy ─────────────────────────────────────
     drops = _get_price_drops_today(usuario.id)
     if drops:
-        st.subheader(f"📉 {len(drops)} bajada(s) de precio hoy")
-        for d in drops:
+        # Favoritos primero
+        drops_fav = [d for d in drops if d.get("supermercado_codigo") in favoritos]
+        drops_otros = [d for d in drops if d.get("supermercado_codigo") not in favoritos]
+        drops_sorted = drops_fav + drops_otros
+
+        st.subheader(f"📉 {len(drops_sorted)} bajada(s) de precio hoy")
+        for d in drops_sorted:
             pct = round((d["precio_habitual"] - d["precio_hoy"]) / d["precio_habitual"] * 100, 1)
             ahorro = round((d["precio_habitual"] - d["precio_hoy"]) * d["cantidad"], 2)
+            badge = "⭐ " if d.get("supermercado_codigo") in favoritos else ""
             col1, col2 = st.columns([5, 2])
             with col1:
                 st.success(
-                    f"**{d['producto_nombre']}** en {d['supermercado_nombre']}  \n"
+                    f"{badge}**{d['producto_nombre']}** en {d['supermercado_nombre']}  \n"
                     f"Hoy: **{d['precio_hoy']:.2f} €** · Habitual: {d['precio_habitual']:.2f} € · "
                     f"**-{pct}%**"
                 )
@@ -117,7 +125,8 @@ def _get_price_drops_today(usuario_id: str) -> list[dict]:
             SELECT ph.producto_id, ph.supermercado_id,
                    ph.precio AS precio_hoy,
                    p.nombre  AS producto_nombre,
-                   s.nombre  AS supermercado_nombre
+                   s.nombre  AS supermercado_nombre,
+                   s.codigo  AS supermercado_codigo
             FROM precios_historicos ph
             JOIN productos     p ON p.id = ph.producto_id
             JOIN supermercados s ON s.id = ph.supermercado_id
@@ -171,6 +180,7 @@ def _get_price_drops_today(usuario_id: str) -> list[dict]:
             drops.append({
                 "producto_nombre":     best["producto_nombre"],
                 "supermercado_nombre": best["supermercado_nombre"],
+                "supermercado_codigo": best.get("supermercado_codigo", ""),
                 "precio_hoy":          precio_hoy,
                 "precio_habitual":     round(mediana, 2),
                 "cantidad":            item["cantidad"],

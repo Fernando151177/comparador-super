@@ -17,6 +17,9 @@ class Usuario:
     created_at: str             # ISO-8601
     ultimo_acceso: Optional[str]
     activo: bool
+    # Hábitos de compra (cargados desde configuracion_usuario)
+    supermercados_favoritos: list = field(default_factory=list)  # ['MERCADONA_ES', ...]
+    coste_desplazamiento: float = 0.0   # € por visita extra a un supermercado
 
 
 @dataclass
