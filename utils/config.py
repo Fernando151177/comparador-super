@@ -43,10 +43,10 @@ DEFAULT_POSTAL_CODE: str = _cfg("DEFAULT_POSTAL_CODE", "28001")
 ADMIN_EMAIL:         str = _cfg("ADMIN_EMAIL")
 
 # ── HTTP / scraping ───────────────────────────────────────────────────────────
-REQUEST_TIMEOUT:   int   = 5
-MAX_RETRIES:       int   = 0
+REQUEST_TIMEOUT:   int   = 15
+MAX_RETRIES:       int   = 2
 BASE_RETRY_DELAY:  float = 1.0    # segundos; se dobla en cada reintento
-RATE_LIMIT_DELAY:  float = 0.1    # segundos entre peticiones del mismo scraper
+RATE_LIMIT_DELAY:  float = 0.3    # segundos entre peticiones del mismo scraper
 
 # ── Umbrales de alertas y optimizador ────────────────────────────────────────
 PRICE_DROP_THRESHOLD:   float = 0.15   # bajada ≥15 % → generar alerta
