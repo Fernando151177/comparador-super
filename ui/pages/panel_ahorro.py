@@ -55,3 +55,62 @@ def mostrar(usuario: Usuario) -> None:
             )
     else:
         st.info("No hay oportunidades de acopio destacadas hoy.")
+
+    # ── Historial de sesiones ─────────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("🗓️ Últimas compras registradas")
+    _render_historial(usuario.id)
+
+
+def _render_historial(usuario_id: str) -> None:
+    from database.connection import get_connection
+    import json
+
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT fecha, supermercados_visitados, total_gastado,
+                   total_ahorrado, productos_comprados
+            FROM sesiones_compra
+            WHERE usuario_id = %s
+            ORDER BY fecha DESC
+            LIMIT 10
+            """,
+            (usuario_id,),
+        ).fetchall()
+
+    if not rows:
+        st.info(
+            "Aún no hay compras registradas. Usa el **🗺️ Optimizador** y pulsa "
+            "**Registrar esta compra** al terminar."
+        )
+        return
+
+    for r in rows:
+        supers = r["supermercados_visitados"] or []
+        if isinstance(supers, str):
+            try:
+                supers = json.loads(supers)
+            except Exception:
+                supers = []
+        supers_str = ", ".join(supers) if supers else "—"
+
+        productos = r["productos_comprados"] or []
+        if isinstance(productos, str):
+            try:
+                productos = json.loads(productos)
+            except Exception:
+                productos = []
+
+        with st.expander(
+            f"📅 {r['fecha']} — {float(r['total_gastado']):.2f} € gastados · "
+            f"{float(r['total_ahorrado']):.2f} € ahorrados"
+        ):
+            st.caption(f"Supermercados: {supers_str}")
+            if productos:
+                for p in productos:
+                    st.write(
+                        f"• {p.get('nombre', '?')} ×{p.get('cantidad', 1)} — "
+                        f"**{float(p.get('precio_total', 0)):.2f} €** "
+                        f"({p.get('supermercado', '')})"
+                    )
