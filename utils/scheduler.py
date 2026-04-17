@@ -137,7 +137,7 @@ def run_all_scrapers() -> None:
     from database.init_db import init_db
     from database.repositories.productos_repo import ProductosRepo
     from database.repositories.precios_repo import PreciosRepo
-    from scrapers import ALL_SCRAPERS
+    from scrapers import ALL_SCRAPERS_ES as ALL_SCRAPERS
 
     init_db()
 

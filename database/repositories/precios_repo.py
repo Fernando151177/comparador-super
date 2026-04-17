@@ -51,6 +51,7 @@ class PreciosRepo:
         self,
         producto_id: Optional[int] = None,
         supermercado_id: Optional[int] = None,
+        pais: Optional[str] = None,
     ) -> list[dict]:
         """Devuelve los precios de hoy, con filtros opcionales.
 
@@ -66,6 +67,9 @@ class PreciosRepo:
         if supermercado_id is not None:
             filters.append("ph.supermercado_id = %s")
             params.append(supermercado_id)
+        if pais and pais != "AMBOS":
+            filters.append("s.pais = %s")
+            params.append(pais)
 
         where = " AND ".join(filters)
         with get_connection() as conn:

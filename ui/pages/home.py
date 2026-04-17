@@ -14,7 +14,7 @@ def mostrar(usuario: Usuario) -> None:
     # ── Quick metrics ─────────────────────────────────────────────────────────
     col1, col2, col3, col4 = st.columns(4)
     n_lista = _count_lista(usuario.id)
-    precios_hoy = PreciosRepo().get_today()
+    precios_hoy = PreciosRepo().get_today(pais=usuario.pais_activo)
     n_alertas = _count_alertas(usuario.id)
 
     col1.metric("En tu lista", n_lista, help="Productos en tu lista de la compra")
