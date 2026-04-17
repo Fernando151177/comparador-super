@@ -75,38 +75,49 @@ def _relevant_categories(queries: list[str], all_cats: list[dict]) -> list[dict]
     return relevant if relevant else all_cats
 
 
-# ── Función cacheada (standalone, sin pasar el scraper como argumento) ────────
-
-def _download_catalogue_for_cp(codigo_postal: str) -> list[dict]:
-    """Descarga el catálogo completo de Mercadona para un código postal."""
-    scraper = MercadonaESScraper.__new__(MercadonaESScraper)
-    scraper.session = requests.Session()
-    scraper.session.headers.update({
-        "Accept": "application/json, text/plain, */*",
-        "Origin": "https://tienda.mercadona.es",
-        "Referer": "https://tienda.mercadona.es/",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    })
-    scraper._postal_set = False
-    scraper.codigo_postal = codigo_postal
-    scraper._supermarket_id = None
-    return scraper._download_catalogue()
 
 
 try:
     import streamlit as st
 
     @st.cache_data(ttl=3600, show_spinner=False)
-    def _cached_catalogue(codigo_postal: str) -> list[dict]:
-        return _download_catalogue_for_cp(codigo_postal)
+    def _cached_catalogue(codigo_postal: str, category_ids_key: str) -> list[dict]:
+        """Descarga solo las categorías indicadas (cacheado 1h)."""
+        scraper = _make_bare_scraper(codigo_postal)
+        ids = [int(x) for x in category_ids_key.split(",") if x]
+        products: list[dict] = []
+        for cat_id in ids:
+            products.extend(scraper._fetch_category_products(cat_id, ""))
+        return products
 
 except ImportError:
-    def _cached_catalogue(codigo_postal: str) -> list[dict]:
-        return _download_catalogue_for_cp(codigo_postal)
+    def _cached_catalogue(codigo_postal: str, category_ids_key: str) -> list[dict]:
+        scraper = _make_bare_scraper(codigo_postal)
+        ids = [int(x) for x in category_ids_key.split(",") if x]
+        products: list[dict] = []
+        for cat_id in ids:
+            products.extend(scraper._fetch_category_products(cat_id, ""))
+        return products
+
+
+def _make_bare_scraper(codigo_postal: str) -> "MercadonaESScraper":
+    """Crea un scraper sin llamar a __init__ de BaseScraper (para uso en caché)."""
+    import requests as _requests
+    scraper = MercadonaESScraper.__new__(MercadonaESScraper)
+    scraper.session = _requests.Session()
+    scraper.session.headers.update({
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://tienda.mercadona.es",
+        "Referer": "https://tienda.mercadona.es/",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+        ),
+    })
+    scraper._postal_set = False
+    scraper._supermarket_id = None
+    scraper.codigo_postal = codigo_postal
+    return scraper
 
 
 class MercadonaESScraper(BaseScraper):
@@ -130,7 +141,18 @@ class MercadonaESScraper(BaseScraper):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def scrape_products(self, queries: list[str]) -> list[ScrapedProduct]:
-        catalogue = _cached_catalogue(self.codigo_postal)
+        # 1. Obtener lista de categorías (1 sola petición)
+        self._set_postal_code()
+        all_cats = self._fetch_categories()
+        if not all_cats:
+            return []
+
+        # 2. Filtrar solo las categorías relevantes para las queries
+        relevant = _relevant_categories(queries, all_cats)
+        ids_key = ",".join(str(c["id"]) for c in relevant)
+
+        # 3. Descargar solo esas categorías (cacheado 1h)
+        catalogue = _cached_catalogue(self.codigo_postal, ids_key)
         if not catalogue:
             print(f"[{self.NOMBRE}] Catálogo vacío.")
             return []
@@ -145,17 +167,6 @@ class MercadonaESScraper(BaseScraper):
         return results
 
     # ── Descarga ──────────────────────────────────────────────────────────────
-
-    def _download_catalogue(self) -> list[dict]:
-        self._set_postal_code()
-        categories = self._fetch_categories()
-        if not categories:
-            return []
-
-        all_products: list[dict] = []
-        for cat in categories:
-            all_products.extend(self._fetch_category_products(cat["id"], cat.get("name", "")))
-        return all_products
 
     def _set_postal_code(self) -> None:
         if self._postal_set:
