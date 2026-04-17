@@ -44,6 +44,12 @@ def _best_match(query: str, prices: list[dict]) -> Optional[dict]:
 # ── Pagina principal ──────────────────────────────────────────────────────────
 
 def mostrar(usuario: Usuario) -> None:
+    # Si hay un producto seleccionado, mostrar su ficha
+    if st.session_state.get("detalle_producto"):
+        from ui.pages.producto_detalle import mostrar as mostrar_detalle
+        mostrar_detalle(usuario)
+        return
+
     # Cabecera
     c1, c2 = st.columns([5, 1])
     with c1:
@@ -193,7 +199,7 @@ def _render_comparison(items: list[dict], prices: list[dict]) -> None:
             default=None,
         )
 
-        row_cols = st.columns([3] + [2] * len(supers))
+        row_cols = st.columns([3] + [2] * len(supers) + [1])
         with row_cols[0]:
             st.write(f"**{q}** ×{qty}")
 
@@ -222,12 +228,31 @@ def _render_comparison(items: list[dict], prices: list[dict]) -> None:
                 else:
                     st.markdown("—")
 
+        # Boton ver ficha (ultima columna)
+        with row_cols[-1]:
+            first_match = next((row_data[s] for s in supers if s in row_data), None)
+            if st.button("🔍", key=f"det_{_norm(q)}", help="Ver ficha del producto"):
+                st.session_state["detalle_producto"] = {
+                    "query": q,
+                    "nombre": first_match["producto_nombre"] if first_match else q,
+                    "imagen": first_match.get("url_imagen") if first_match else None,
+                    "marca": first_match.get("marca") if first_match else None,
+                    "categoria": first_match.get("categoria") if first_match else None,
+                    "unidad_medida": first_match.get("unidad_medida") if first_match else None,
+                    "precio_base": float(first_match["precio"]) if first_match else None,
+                    "precio_kilo": float(first_match["precio_por_unidad_normalizado"]) if first_match and first_match.get("precio_por_unidad_normalizado") else None,
+                    "unidad_norm": first_match.get("unidad_normalizacion") if first_match else None,
+                    "super_base": first_match["supermercado_nombre"] if first_match else "",
+                }
+                st.rerun()
+
     st.divider()
 
     # Fila de totales
-    total_cols = st.columns([3] + [2] * len(supers))
+    total_cols = st.columns([3] + [2] * len(supers) + [1])
     with total_cols[0]:
         st.markdown("**TOTAL**")
+    total_cols[-1].write("")  # columna boton vacia en fila total
     for i, s in enumerate(supers):
         with total_cols[i + 1]:
             if totals[s] > 0:
