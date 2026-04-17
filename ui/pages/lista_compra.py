@@ -64,6 +64,7 @@ def _run_scrapers_button(usuario: Usuario) -> None:
 
 def _run_scrapers(usuario: Usuario) -> None:
     """Ejecuta los scrapers para los productos de la lista del usuario."""
+    import concurrent.futures
     from scrapers import ALL_SCRAPERS_ES, ALL_SCRAPERS_PT
     from database.repositories.productos_repo import ProductosRepo
     from database.repositories.precios_repo import PreciosRepo
@@ -85,22 +86,31 @@ def _run_scrapers(usuario: Usuario) -> None:
     productos_repo = ProductosRepo()
     precios_repo = PreciosRepo()
     total = 0
+    errores = []
     bar = st.progress(0, text="Iniciando…")
+
+    _SCRAPER_TIMEOUT = 20  # segundos máximo por supermercado
 
     for i, cls in enumerate(scraper_classes):
         scraper = cls()
         bar.progress((i + 1) / len(scraper_classes), text=f"Consultando {scraper.NOMBRE}…")
         try:
-            results = scraper.scrape_products(queries)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                future = ex.submit(scraper.scrape_products, queries)
+                results = future.result(timeout=_SCRAPER_TIMEOUT)
             for sp in results:
                 pid = productos_repo.upsert_from_scraped(sp, scraper.supermarket_id)
                 if pid:
                     precios_repo.upsert_today(pid, scraper.supermarket_id, sp)
                     total += 1
+        except concurrent.futures.TimeoutError:
+            errores.append(f"{scraper.NOMBRE} (sin respuesta)")
         except Exception as exc:
-            st.warning(f"⚠️ {scraper.NOMBRE}: {exc}")
+            errores.append(f"{scraper.NOMBRE}: {exc}")
 
     bar.empty()
+    if errores:
+        st.warning("⚠️ Sin respuesta de: " + ", ".join(errores))
     st.success(f"✅ {total} precios actualizados en {len(scraper_classes)} supermercados.")
 
 
