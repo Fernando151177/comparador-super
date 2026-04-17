@@ -1,24 +1,12 @@
-"""Mercadona ES scraper — uses Mercadona's undocumented REST API.
+"""Mercadona ES scraper — uses Mercadona's search API.
 
 Endpoints (no authentication required):
     POST https://tienda.mercadona.es/api/postal-codes/{cp}/
          → sets the warehouse/region; must be called before fetching prices.
-    GET  https://tienda.mercadona.es/api/categories/?lang=es
-         → list of top-level categories.
-    GET  https://tienda.mercadona.es/api/categories/{id}/?lang=es
-         → products in a category (nested subcategories).
-
-Strategy:
-    Download the full product catalogue once per scraper instance (~30 s).
-    Cache it in memory.  Match search queries using combined string similarity
-    + keyword bonus scoring.
-
-Rate limiting:
-    0.3 s between category requests (polite, well below DDoS thresholds).
+    GET  https://tienda.mercadona.es/api/search/?query=TERM&lang=es
+         → direct product search (fast, no full catalogue download needed).
 """
-import time
 import unicodedata
-from difflib import SequenceMatcher
 from typing import Optional
 
 from domain.models import ScrapedProduct
@@ -40,24 +28,17 @@ def _normalize(text: str) -> str:
     )
 
 
-def _similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, _normalize(a), _normalize(b)).ratio()
-
-
 class MercadonaESScraper(BaseScraper):
-    """Full-catalogue scraper for tienda.mercadona.es."""
+    """Search-based scraper for tienda.mercadona.es (one request per product)."""
 
     NOMBRE = "Mercadona"
     CODIGO = "MERCADONA_ES"
     PAIS = "ES"
 
-    # Similarity threshold below which a match is discarded
-    _MIN_SCORE: float = 0.30
-
     def __init__(self, codigo_postal: str = DEFAULT_POSTAL_CODE) -> None:
         super().__init__()
         self.codigo_postal = codigo_postal
-        self._catalogue: list[dict] = []   # in-memory cache
+        self._postal_set = False
         self.session.headers.update({
             "Accept": "application/json, text/plain, */*",
             "Origin": "https://tienda.mercadona.es",
@@ -67,75 +48,52 @@ class MercadonaESScraper(BaseScraper):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def scrape_products(self, queries: list[str]) -> list[ScrapedProduct]:
-        """Fetches prices for the given queries from the Mercadona catalogue."""
-        self._ensure_catalogue()
+        """Searches Mercadona's API once per query (no full catalogue download)."""
+        self._ensure_postal_code()
 
         results: list[ScrapedProduct] = []
         for query in queries:
-            match = self._best_match(query)
-            if match:
-                results.append(self._to_scraped(query, match))
+            product = self._search(query)
+            if product:
+                results.append(self._to_scraped(query, product))
             else:
                 print(f"[{self.NOMBRE}] Not found: {query!r}")
 
         return results
 
-    # ── Catalogue management ──────────────────────────────────────────────────
+    # ── Postal code ───────────────────────────────────────────────────────────
 
-    def _ensure_catalogue(self) -> None:
-        """Downloads the full catalogue if not already cached."""
-        if self._catalogue:
+    def _ensure_postal_code(self) -> None:
+        if self._postal_set:
             return
-
-        self._set_postal_code()
-        categories = self._fetch_categories()
-        if not categories:
-            print(f"[{self.NOMBRE}] Failed to fetch categories.")
-            return
-
-        print(f"[{self.NOMBRE}] Downloading catalogue ({len(categories)} categories)…")
-        all_products: list[dict] = []
-        for i, cat in enumerate(categories):
-            print(f"[{self.NOMBRE}]   {i + 1}/{len(categories)} {cat.get('name', '')}")
-            all_products.extend(self._fetch_category_products(cat["id"]))
-            time.sleep(0.3)
-
-        self._catalogue = all_products
-        print(f"[{self.NOMBRE}] Catalogue ready — {len(all_products)} products.")
-
-    def _set_postal_code(self) -> None:
-        """Sends the postal code to Mercadona so the API returns local prices."""
         resp = self.post(
             f"{_BASE_URL}/postal-codes/{self.codigo_postal}/",
             extra_headers={"Content-Type": "application/json"},
         )
         if resp is None:
             print(f"[{self.NOMBRE}] Warning: could not set postal code {self.codigo_postal}.")
+        self._postal_set = True
 
-    def _fetch_categories(self) -> list[dict]:
-        resp = self.get(f"{_BASE_URL}/categories/", params={"lang": "es"})
-        if resp is None:
-            return []
-        data = resp.json()
-        return data.get("results", [])
+    # ── Search ────────────────────────────────────────────────────────────────
 
-    def _fetch_category_products(self, category_id: int) -> list[dict]:
+    def _search(self, query: str) -> Optional[dict]:
+        """Calls the search endpoint and returns the best matching product."""
         resp = self.get(
-            f"{_BASE_URL}/categories/{category_id}/", params={"lang": "es"}
+            f"{_BASE_URL}/search/",
+            params={"query": query, "lang": "es"},
         )
         if resp is None:
-            return []
+            return None
 
         data = resp.json()
-        products: list[dict] = []
-        for sub in data.get("categories", []):
-            for raw in sub.get("products", []):
-                parsed = self._parse_raw_product(raw, data.get("name", ""))
-                if parsed:
-                    products.append(parsed)
-        return products
+        products = data.get("products", [])
+        if not products:
+            return None
 
-    def _parse_raw_product(self, raw: dict, category_name: str) -> Optional[dict]:
+        # Return the first result (Mercadona's API already ranks by relevance)
+        return self._parse_raw_product(products[0])
+
+    def _parse_raw_product(self, raw: dict) -> Optional[dict]:
         """Extracts a normalised product dict from a raw API response item."""
         price_info = raw.get("price_instructions", {})
         try:
@@ -154,18 +112,17 @@ class MercadonaESScraper(BaseScraper):
         except (ValueError, TypeError):
             pass
 
-        # Mercadona's API does not expose the EAN in this endpoint.
         return {
-            "id":           raw.get("id"),
-            "nombre":       raw.get("display_name", "").strip(),
-            "marca":        None,   # not available in this endpoint
-            "categoria":    category_name,
-            "subcategoria": None,
-            "precio":       precio,
-            "precio_kilo":  precio_kilo,
+            "id":            raw.get("id"),
+            "nombre":        raw.get("display_name", "").strip(),
+            "marca":         None,
+            "categoria":     raw.get("category", {}).get("name", "") if isinstance(raw.get("category"), dict) else "",
+            "subcategoria":  None,
+            "precio":        precio,
+            "precio_kilo":   precio_kilo,
             "unidad_medida": price_info.get("unit_size", ""),
-            "url_imagen":   self._extract_image(raw),
-            "url_producto": _PRODUCT_URL.format(id=raw.get("id", "")),
+            "url_imagen":    self._extract_image(raw),
+            "url_producto":  _PRODUCT_URL.format(id=raw.get("id", "")),
         }
 
     @staticmethod
@@ -175,38 +132,6 @@ class MercadonaESScraper(BaseScraper):
         except (KeyError, IndexError, TypeError):
             return None
 
-    # ── Matching ──────────────────────────────────────────────────────────────
-
-    def _best_match(self, query: str) -> Optional[dict]:
-        """Returns the catalogue product with the highest relevance score."""
-        query_lower = _normalize(query)
-        query_words = set(query_lower.split())
-
-        best_score = 0.0
-        best_product: Optional[dict] = None
-
-        for product in self._catalogue:
-            nombre = product.get("nombre", "")
-            if not nombre:
-                continue
-
-            # Base string similarity
-            score = _similarity(query, nombre)
-
-            # Bonus: proportion of query words present in product name
-            product_words = set(_normalize(nombre).split())
-            overlap = len(query_words & product_words)
-            bonus = (overlap / max(len(query_words), 1)) * 0.30
-
-            total = score + bonus
-            if total > best_score:
-                best_score = total
-                best_product = product
-
-        if best_score < self._MIN_SCORE:
-            return None
-        return best_product
-
     # ── Conversion ────────────────────────────────────────────────────────────
 
     @staticmethod
@@ -215,7 +140,7 @@ class MercadonaESScraper(BaseScraper):
             nombre=product["nombre"],
             precio=product["precio"],
             moneda="EUR",
-            ean=None,                    # not available via this API
+            ean=None,
             marca=product.get("marca"),
             categoria=product.get("categoria"),
             subcategoria=product.get("subcategoria"),
