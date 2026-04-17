@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(gh --version)",
+      "Bash(git --version)",
+      "Bash(winget --version)",
+      "Bash(curl --version)",
+      "Bash(winget install *)"
+    ]
+  }
+}
