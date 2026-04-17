@@ -17,6 +17,17 @@ from utils import config
 from utils.user_agents import get_headers
 
 
+def _make_session() -> requests.Session:
+    """Crea una sesión HTTP con cloudscraper si está disponible, si no requests."""
+    try:
+        import cloudscraper
+        return cloudscraper.create_scraper(
+            browser={"browser": "chrome", "platform": "windows", "mobile": False}
+        )
+    except ImportError:
+        return requests.Session()
+
+
 class BaseScraper(ABC):
     """Common HTTP layer, rate limiting and retry logic for all scrapers."""
 
@@ -25,7 +36,7 @@ class BaseScraper(ABC):
     PAIS: str = "ES"          # 'ES' | 'PT'
 
     def __init__(self) -> None:
-        self.session = requests.Session()
+        self.session = _make_session()
         self.session.headers.update(get_headers())
         self._supermarket_id: Optional[int] = None
 
