@@ -173,13 +173,36 @@ class LidlESScraper(BaseScraper):
 
     # ── Matching ──────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _word_overlap(query_words: set[str], product_words: set[str]) -> int:
+        """Cuenta cuántas palabras clave de la query aparecen en el producto.
+
+        Usa coincidencia de prefijo para cubrir plurales del español:
+        'pimiento' coincide con 'pimientos', 'verde' con 'verdes', etc.
+        Solo se consideran palabras de 4+ caracteres para evitar ruido.
+        """
+        count = 0
+        for qw in query_words:
+            if len(qw) < 4:
+                continue
+            for pw in product_words:
+                # prefijo: 'pimiento' en 'pimientos', o 'verdes' empieza por 'verde'
+                if pw.startswith(qw) or qw.startswith(pw):
+                    count += 1
+                    break
+        return count
+
     def _best_match(self, query: str, candidates: list[dict]) -> Optional[dict]:
         if not candidates:
             return None
 
         query_words = set(_normalize(query).split())
-        # Ignorar palabras muy cortas (artículos, unidades sueltas) para el filtro
-        key_words = {w for w in query_words if len(w) >= 3}
+        # Palabras clave: >= 4 chars, excluye artículos/preposiciones
+        key_words = {w for w in query_words if len(w) >= 4}
+
+        # Palabra principal de la query: la primera con >= 4 chars (normalmente el sustantivo)
+        main_words = [w for w in _normalize(query).split() if len(w) >= 4]
+        main_word = main_words[0] if main_words else None
 
         best_score = 0.0
         best: Optional[dict] = None
@@ -188,10 +211,19 @@ class LidlESScraper(BaseScraper):
             nombre = p.get("nombre", "")
             product_words = set(_normalize(nombre).split())
 
-            # Requiere al menos 1 palabra clave de la query en el nombre
-            overlap = len(key_words & product_words)
+            # Requiere que al menos 1 palabra clave de la query aparezca (con plurales)
+            overlap = self._word_overlap(key_words, product_words)
             if overlap == 0:
                 continue
+
+            # Si la query tiene varias palabras clave, la palabra principal debe estar presente
+            if main_word and len(key_words) >= 2:
+                main_present = any(
+                    pw.startswith(main_word) or main_word.startswith(pw)
+                    for pw in product_words if len(pw) >= 4
+                )
+                if not main_present:
+                    continue
 
             score = _similarity(query, nombre)
             # Rechazar si la similitud base es demasiado baja (evita falsos positivos)
