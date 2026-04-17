@@ -272,6 +272,12 @@ def _render_comparison(items: list[dict], prices: list[dict]) -> None:
             pct = int(n / total_items * 100) if total_items else 0
             st.metric(s, f"{n}/{total_items}", f"{pct}% encontrado")
 
+    if len(supers) <= 2:
+        st.caption(
+            "ℹ️ Solo aparecen Mercadona y Lidl porque Carrefour, Alcampo, Día e Hipercor "
+            "bloquean peticiones automáticas desde servidores en la nube (Cloudflare)."
+        )
+
 
 # ── Menu Opciones ─────────────────────────────────────────────────────────────
 
@@ -378,7 +384,10 @@ def _run_scrapers_button(usuario: Usuario) -> None:
             _run_scrapers(usuario)
             st.rerun()
     with col_info:
-        st.caption("Actualiza precios de Mercadona y Lidl en tiempo real.")
+        st.caption(
+            "Actualiza precios de Mercadona y Lidl en tiempo real. "
+            "Carrefour, Alcampo, Día e Hipercor bloquean peticiones automáticas desde servidores en la nube."
+        )
     st.markdown("---")
 
 
