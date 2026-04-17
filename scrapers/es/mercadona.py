@@ -1,12 +1,15 @@
-"""Mercadona ES scraper — full catalogue download with Streamlit cache.
+"""Mercadona ES scraper — descarga solo las categorías relevantes para las queries.
 
-Endpoints (no authentication required):
+Endpoints:
     POST https://tienda.mercadona.es/api/postal-codes/{cp}/
     GET  https://tienda.mercadona.es/api/categories/?lang=es
     GET  https://tienda.mercadona.es/api/categories/{id}/?lang=es
 """
 import unicodedata
+from difflib import SequenceMatcher
 from typing import Optional
+
+import requests
 
 from domain.models import ScrapedProduct
 from scrapers.base import BaseScraper
@@ -15,9 +18,22 @@ from utils.config import DEFAULT_POSTAL_CODE
 _BASE_URL = "https://tienda.mercadona.es/api"
 _PRODUCT_URL = "https://tienda.mercadona.es/product/{id}"
 
+# Palabras clave por categoría para seleccionar solo las relevantes
+_CATEGORY_KEYWORDS = {
+    "fruta":    ["limon", "platano", "manzana", "pera", "naranja", "fresa", "uva",
+                 "melon", "sandia", "kiwi", "mango", "cereza", "ciruela", "nectarina"],
+    "verdura":  ["pimiento", "tomate", "lechuga", "cebolla", "ajo", "zanahoria",
+                 "patata", "pepino", "calabacin", "brocoli", "espinaca", "acelga"],
+    "lacteo":   ["leche", "yogur", "queso", "mantequilla", "nata", "huevo"],
+    "carne":    ["pollo", "ternera", "cerdo", "pavo", "cordero", "jamon", "chorizo"],
+    "pescado":  ["salmon", "merluza", "atun", "sardina", "bacalao", "gamba", "mejillon"],
+    "pan":      ["pan", "barra", "tostada", "galleta", "cereal"],
+    "bebida":   ["agua", "zumo", "refresco", "cerveza", "vino", "cafe", "te"],
+    "limpieza": ["detergente", "suavizante", "friegaplatos", "bayeta", "papel"],
+}
 
-def _normalize(text: str) -> str:
-    """Lower-cases and strips accents: 'Leche Entera' → 'leche entera'."""
+
+def _norm(text: str) -> str:
     return (
         unicodedata.normalize("NFD", text)
         .encode("ascii", "ignore")
@@ -27,12 +43,79 @@ def _normalize(text: str) -> str:
     )
 
 
+def _similarity(a: str, b: str) -> float:
+    return SequenceMatcher(None, _norm(a), _norm(b)).ratio()
+
+
+def _relevant_categories(queries: list[str], all_cats: list[dict]) -> list[dict]:
+    """Devuelve solo las categorías de Mercadona que coinciden con las queries."""
+    query_words = set()
+    for q in queries:
+        query_words.update(_norm(q).split())
+
+    # Detectar qué grupos de categorías necesitamos
+    needed_groups: set[str] = set()
+    for group, keywords in _CATEGORY_KEYWORDS.items():
+        if query_words & set(keywords):
+            needed_groups.add(group)
+
+    if not needed_groups:
+        # Si no detectamos categoría específica, devolver todas
+        return all_cats
+
+    # Filtrar categorías de Mercadona por nombre
+    group_terms = {kw for g in needed_groups for kw in _CATEGORY_KEYWORDS[g]}
+    relevant = []
+    for cat in all_cats:
+        cat_name = _norm(cat.get("name", ""))
+        if any(kw in cat_name for kw in group_terms):
+            relevant.append(cat)
+
+    # Si el filtro es demasiado estricto y no coincide nada, devolver todas
+    return relevant if relevant else all_cats
+
+
+# ── Función cacheada (standalone, sin pasar el scraper como argumento) ────────
+
+def _download_catalogue_for_cp(codigo_postal: str) -> list[dict]:
+    """Descarga el catálogo completo de Mercadona para un código postal."""
+    scraper = MercadonaESScraper.__new__(MercadonaESScraper)
+    scraper.session = requests.Session()
+    scraper.session.headers.update({
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://tienda.mercadona.es",
+        "Referer": "https://tienda.mercadona.es/",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    })
+    scraper._postal_set = False
+    scraper.codigo_postal = codigo_postal
+    scraper._supermarket_id = None
+    return scraper._download_catalogue()
+
+
+try:
+    import streamlit as st
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _cached_catalogue(codigo_postal: str) -> list[dict]:
+        return _download_catalogue_for_cp(codigo_postal)
+
+except ImportError:
+    def _cached_catalogue(codigo_postal: str) -> list[dict]:
+        return _download_catalogue_for_cp(codigo_postal)
+
+
 class MercadonaESScraper(BaseScraper):
-    """Search-based scraper for tienda.mercadona.es (one request per product)."""
+    """Scraper de Mercadona — descarga catálogo cacheado y busca por similitud."""
 
     NOMBRE = "Mercadona"
     CODIGO = "MERCADONA_ES"
     PAIS = "ES"
+    _MIN_SCORE: float = 0.35
 
     def __init__(self, codigo_postal: str = DEFAULT_POSTAL_CODE) -> None:
         super().__init__()
@@ -47,10 +130,9 @@ class MercadonaESScraper(BaseScraper):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def scrape_products(self, queries: list[str]) -> list[ScrapedProduct]:
-        """Fetches prices for the given queries from the Mercadona catalogue."""
-        catalogue = self._get_catalogue()
+        catalogue = _cached_catalogue(self.codigo_postal)
         if not catalogue:
-            print(f"[{self.NOMBRE}] Empty catalogue — skipping.")
+            print(f"[{self.NOMBRE}] Catálogo vacío.")
             return []
 
         results: list[ScrapedProduct] = []
@@ -59,22 +141,12 @@ class MercadonaESScraper(BaseScraper):
             if match:
                 results.append(self._to_scraped(query, match))
             else:
-                print(f"[{self.NOMBRE}] Not found: {query!r}")
-
+                print(f"[{self.NOMBRE}] No encontrado: {query!r}")
         return results
 
-    # ── Catalogue ─────────────────────────────────────────────────────────────
-
-    def _get_catalogue(self) -> list[dict]:
-        """Returns the full catalogue, using Streamlit cache when available."""
-        try:
-            import streamlit as st
-            return _cached_mercadona_catalogue(self.codigo_postal, self)
-        except Exception:
-            return self._download_catalogue()
+    # ── Descarga ──────────────────────────────────────────────────────────────
 
     def _download_catalogue(self) -> list[dict]:
-        """Downloads the full product catalogue from Mercadona."""
         self._set_postal_code()
         categories = self._fetch_categories()
         if not categories:
@@ -82,8 +154,7 @@ class MercadonaESScraper(BaseScraper):
 
         all_products: list[dict] = []
         for cat in categories:
-            all_products.extend(self._fetch_category_products(cat["id"]))
-
+            all_products.extend(self._fetch_category_products(cat["id"], cat.get("name", "")))
         return all_products
 
     def _set_postal_code(self) -> None:
@@ -101,7 +172,7 @@ class MercadonaESScraper(BaseScraper):
             return []
         return resp.json().get("results", [])
 
-    def _fetch_category_products(self, category_id: int) -> list[dict]:
+    def _fetch_category_products(self, category_id: int, category_name: str) -> list[dict]:
         resp = self.get(f"{_BASE_URL}/categories/{category_id}/", params={"lang": "es"})
         if resp is None:
             return []
@@ -109,41 +180,17 @@ class MercadonaESScraper(BaseScraper):
         products: list[dict] = []
         for sub in data.get("categories", []):
             for raw in sub.get("products", []):
-                parsed = self._parse_raw_product(raw, data.get("name", ""))
+                parsed = self._parse_raw_product(raw, category_name)
                 if parsed:
                     products.append(parsed)
         return products
 
-    # ── Matching ─────────────────────────────────────────────────────────────
-
-    def _best_match(self, query: str, catalogue: list[dict]) -> Optional[dict]:
-        from difflib import SequenceMatcher
-        import unicodedata as ud
-
-        def norm(t: str) -> str:
-            return ud.normalize("NFD", t).encode("ascii", "ignore").decode().lower().strip()
-
-        query_words = set(norm(query).split())
-        best_score, best = 0.0, None
-        for product in catalogue:
-            nombre = product.get("nombre", "")
-            if not nombre:
-                continue
-            score = SequenceMatcher(None, norm(query), norm(nombre)).ratio()
-            overlap = len(query_words & set(norm(nombre).split()))
-            total = score + (overlap / max(len(query_words), 1)) * 0.30
-            if total > best_score:
-                best_score, best = total, product
-        return best if best_score >= 0.35 else None
-
-    def _parse_raw_product(self, raw: dict) -> Optional[dict]:
-        """Extracts a normalised product dict from a raw API response item."""
+    def _parse_raw_product(self, raw: dict, category_name: str = "") -> Optional[dict]:
         price_info = raw.get("price_instructions", {})
         try:
             precio = float(price_info.get("unit_price", 0) or 0)
         except (ValueError, TypeError):
             return None
-
         if precio <= 0:
             return None
 
@@ -159,7 +206,7 @@ class MercadonaESScraper(BaseScraper):
             "id":            raw.get("id"),
             "nombre":        raw.get("display_name", "").strip(),
             "marca":         None,
-            "categoria":     raw.get("category", {}).get("name", "") if isinstance(raw.get("category"), dict) else "",
+            "categoria":     category_name,
             "subcategoria":  None,
             "precio":        precio,
             "precio_kilo":   precio_kilo,
@@ -174,6 +221,22 @@ class MercadonaESScraper(BaseScraper):
             return raw["photos"][0]["zoom"]
         except (KeyError, IndexError, TypeError):
             return None
+
+    # ── Matching ─────────────────────────────────────────────────────────────
+
+    def _best_match(self, query: str, catalogue: list[dict]) -> Optional[dict]:
+        query_words = set(_norm(query).split())
+        best_score, best = 0.0, None
+        for product in catalogue:
+            nombre = product.get("nombre", "")
+            if not nombre:
+                continue
+            score = _similarity(query, nombre)
+            overlap = len(query_words & set(_norm(nombre).split()))
+            total = score + (overlap / max(len(query_words), 1)) * 0.30
+            if total > best_score:
+                best_score, best = total, product
+        return best if best_score >= self._MIN_SCORE else None
 
     # ── Conversion ────────────────────────────────────────────────────────────
 
@@ -197,30 +260,14 @@ class MercadonaESScraper(BaseScraper):
         )
 
 
-# ── Streamlit cache (evita descargar el catálogo en cada búsqueda) ────────────
-
-try:
-    import streamlit as st
-
-    @st.cache_data(ttl=3600, show_spinner="Descargando catálogo Mercadona…")
-    def _cached_mercadona_catalogue(codigo_postal: str, scraper) -> list[dict]:
-        return scraper._download_catalogue()
-
-except ImportError:
-    def _cached_mercadona_catalogue(codigo_postal: str, scraper) -> list[dict]:
-        return scraper._download_catalogue()
-
-
 # ── Manual testing ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    from database.init_db import init_db
-    init_db()
 
     scraper = MercadonaESScraper()
-    test_queries = ["leche entera 1L", "pan de molde", "aceite de oliva", "huevos L"]
+    test_queries = ["limon", "pimiento rojo", "platano", "leche entera"]
     results = scraper.scrape_products(test_queries)
 
     print(f"\n{'─'*60}")
