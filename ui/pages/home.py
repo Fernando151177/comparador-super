@@ -24,15 +24,15 @@ def mostrar(usuario: Usuario) -> None:
 
     st.markdown("---")
 
-    # ── Price table ───────────────────────────────────────────────────────────
     if precios_hoy:
-        st.subheader("Precios de hoy")
-        st.caption("El precio más barato de cada producto aparece resaltado en verde.")
-        _render_price_table(precios_hoy)
+        st.info(
+            f"Hay **{len(precios_hoy)} precios** actualizados hoy. "
+            "Ve a **📋 Mi lista** para ver la comparativa completa con precio por kg."
+        )
     else:
         st.info(
             "No hay precios para hoy. Ve a **📋 Mi lista** y pulsa "
-            "**Actualizar precios** para consultar los supermercados."
+            "**🔄 Consultar supermercados ahora** para actualizar."
         )
 
 
