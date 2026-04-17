@@ -98,13 +98,16 @@ def _run_scrapers(usuario: Usuario) -> None:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                 future = ex.submit(scraper.scrape_products, queries)
                 results = future.result(timeout=_SCRAPER_TIMEOUT)
+            guardados = 0
             for sp in results:
                 pid = productos_repo.upsert_from_scraped(sp, scraper.supermarket_id)
                 if pid:
                     precios_repo.upsert_today(pid, scraper.supermarket_id, sp)
                     total += 1
+                    guardados += 1
+            st.caption(f"✔ {scraper.NOMBRE}: {len(results)} encontrados, {guardados} guardados")
         except concurrent.futures.TimeoutError:
-            errores.append(f"{scraper.NOMBRE} (sin respuesta)")
+            errores.append(f"{scraper.NOMBRE} (timeout)")
         except Exception as exc:
             errores.append(f"{scraper.NOMBRE}: {exc}")
 
