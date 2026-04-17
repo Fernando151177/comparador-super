@@ -84,84 +84,144 @@ def mostrar(usuario: Usuario) -> None:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_price_drops_today(usuario_id: str) -> list[dict]:
-    """Devuelve bajadas de precio ≥15% para los productos de la lista del usuario."""
+    """Devuelve bajadas de precio para los productos de la lista del usuario.
+
+    Usa fuzzy matching entre query_texto y nombres de productos con precio hoy,
+    ya que lista_usuario.producto_id suele ser NULL.
+    """
+    import unicodedata
+    from difflib import SequenceMatcher
     from datetime import date
     from utils.config import PRICE_DROP_THRESHOLD
 
+    def norm(t: str) -> str:
+        return unicodedata.normalize("NFD", t).encode("ascii", "ignore").decode().lower().strip()
+
     hoy = str(date.today())
+
+    # Items de la lista del usuario
     with get_connection() as conn:
-        rows = conn.execute(
+        items = conn.execute(
+            "SELECT query_texto, cantidad FROM lista_usuario "
+            "WHERE usuario_id = %s AND comprado = FALSE",
+            (usuario_id,),
+        ).fetchall()
+
+    if not items:
+        return []
+
+    # Precios de hoy con histórico
+    with get_connection() as conn:
+        prices = conn.execute(
             """
-            SELECT lu.cantidad,
-                   p.nombre AS producto_nombre,
-                   s.nombre AS supermercado_nombre,
+            SELECT ph.producto_id, ph.supermercado_id,
                    ph.precio AS precio_hoy,
-                   ph.supermercado_id,
-                   lu.producto_id
-            FROM lista_usuario lu
-            JOIN precios_historicos ph ON ph.producto_id = lu.producto_id
-                                     AND ph.fecha_scraping = %s
-            JOIN productos p ON p.id = lu.producto_id
+                   p.nombre  AS producto_nombre,
+                   s.nombre  AS supermercado_nombre
+            FROM precios_historicos ph
+            JOIN productos     p ON p.id = ph.producto_id
             JOIN supermercados s ON s.id = ph.supermercado_id
-            WHERE lu.usuario_id = %s
-              AND lu.comprado = FALSE
-              AND lu.producto_id IS NOT NULL
-            ORDER BY p.nombre
+            WHERE ph.fecha_scraping = %s
             """,
-            (hoy, usuario_id),
+            (hoy,),
         ).fetchall()
 
     drops = []
-    for row in rows:
-        # Mediana histórica (últimos 30 días antes de hoy)
+    for item in items:
+        query = item["query_texto"]
+        qn = norm(query)
+        qw = set(qn.split())
+
+        # Mejor coincidencia entre todos los precios de hoy
+        best, best_score = None, 0.0
+        for p in prices:
+            nn = norm(p["producto_nombre"])
+            sim = SequenceMatcher(None, qn, nn).ratio()
+            ov = len(qw & set(nn.split()))
+            total = sim + (ov / max(len(qw), 1)) * 0.30
+            if total > best_score:
+                best_score, best = total, p
+
+        if best is None or best_score < 0.40:
+            continue
+
+        # Mediana histórica de ese producto (últimos 30 días excluyendo hoy)
         with get_connection() as conn:
             hist = conn.execute(
                 """
                 SELECT precio FROM precios_historicos
-                WHERE producto_id = %s
-                  AND supermercado_id = %s
+                WHERE producto_id = %s AND supermercado_id = %s
                   AND fecha_scraping < %s
-                ORDER BY fecha_scraping DESC
-                LIMIT 30
+                ORDER BY fecha_scraping DESC LIMIT 30
                 """,
-                (row["producto_id"], row["supermercado_id"], hoy),
+                (best["producto_id"], best["supermercado_id"], hoy),
             ).fetchall()
 
         if len(hist) < 3:
             continue
 
-        precios = sorted(float(r["precio"]) for r in hist)
-        mediana = precios[len(precios) // 2]
-        precio_hoy = float(row["precio_hoy"])
+        precios_hist = sorted(float(r["precio"]) for r in hist)
+        mediana = precios_hist[len(precios_hist) // 2]
+        precio_hoy = float(best["precio_hoy"])
 
         if mediana == 0:
             continue
 
         if (mediana - precio_hoy) / mediana >= PRICE_DROP_THRESHOLD:
             drops.append({
-                "producto_nombre":   row["producto_nombre"],
-                "supermercado_nombre": row["supermercado_nombre"],
-                "precio_hoy":        precio_hoy,
-                "precio_habitual":   round(mediana, 2),
-                "cantidad":          row["cantidad"],
+                "producto_nombre":     best["producto_nombre"],
+                "supermercado_nombre": best["supermercado_nombre"],
+                "precio_hoy":          precio_hoy,
+                "precio_habitual":     round(mediana, 2),
+                "cantidad":            item["cantidad"],
             })
 
     return sorted(drops, key=lambda x: x["precio_habitual"] - x["precio_hoy"], reverse=True)
 
 
 def _get_user_productos(usuario_id: str) -> list[dict]:
-    """Productos vinculados a la lista del usuario (con producto_id asignado)."""
+    """Devuelve los productos de hoy que mejor coinciden con la lista del usuario."""
+    import unicodedata
+    from difflib import SequenceMatcher
+    from datetime import date
+
+    def norm(t: str) -> str:
+        return unicodedata.normalize("NFD", t).encode("ascii", "ignore").decode().lower().strip()
+
+    hoy = str(date.today())
     with get_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT DISTINCT lu.producto_id AS id, p.nombre
-            FROM lista_usuario lu
-            JOIN productos p ON p.id = lu.producto_id
-            WHERE lu.usuario_id = %s
-              AND lu.producto_id IS NOT NULL
-              AND lu.comprado = FALSE
-            ORDER BY p.nombre
-            """,
+        items = conn.execute(
+            "SELECT query_texto FROM lista_usuario "
+            "WHERE usuario_id = %s AND comprado = FALSE",
             (usuario_id,),
         ).fetchall()
-    return [dict(r) for r in rows]
+        prices = conn.execute(
+            """
+            SELECT DISTINCT p.id, p.nombre
+            FROM precios_historicos ph
+            JOIN productos p ON p.id = ph.producto_id
+            WHERE ph.fecha_scraping = %s
+            """,
+            (hoy,),
+        ).fetchall()
+
+    result = []
+    for item in items:
+        qn = norm(item["query_texto"])
+        best, best_score = None, 0.0
+        for p in prices:
+            score = SequenceMatcher(None, qn, norm(p["nombre"])).ratio()
+            if score > best_score:
+                best_score, best = score, p
+        if best and best_score >= 0.40:
+            result.append({"id": best["id"], "nombre": best["nombre"]})
+
+    # deduplicate
+    seen = set()
+    unique = []
+    for r in result:
+        if r["id"] not in seen:
+            seen.add(r["id"])
+            unique.append(r)
+
+    return unique

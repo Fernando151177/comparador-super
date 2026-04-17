@@ -231,7 +231,7 @@ def _render_comparison(items: list[dict], prices: list[dict]) -> None:
         # Boton ver ficha (ultima columna)
         with row_cols[-1]:
             first_match = next((row_data[s] for s in supers if s in row_data), None)
-            if st.button("🔍", key=f"det_{_norm(q)}", help="Ver ficha del producto"):
+            if st.button("🔍", key=f"det_{item['id']}", help="Ver ficha del producto"):
                 st.session_state["detalle_producto"] = {
                     "query": q,
                     "nombre": first_match["producto_nombre"] if first_match else q,

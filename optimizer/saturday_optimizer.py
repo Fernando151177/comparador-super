@@ -123,7 +123,7 @@ def _load_lista(usuario_id: str) -> list[ItemLista]:
             SELECT id, usuario_id, producto_id, ean, query_texto,
                    cantidad, prioridad, comprado
             FROM lista_usuario
-            WHERE usuario_id = ? AND comprado = 0
+            WHERE usuario_id = %s AND comprado = FALSE
             ORDER BY prioridad DESC, query_texto
             """,
             (usuario_id,),
@@ -163,7 +163,7 @@ def _resolve_products(
             # If already linked, verify it has a price today
             if pid is not None:
                 has_price = conn.execute(
-                    "SELECT 1 FROM precios_historicos WHERE producto_id = ? AND fecha_scraping = ?",
+                    "SELECT 1 FROM precios_historicos WHERE producto_id = %s AND fecha_scraping = %s",
                     (pid, today),
                 ).fetchone()
                 if has_price:
@@ -190,7 +190,7 @@ def _fuzzy_find_product(conn, query: str, pais: str, today: str) -> Optional[int
             unicodedata.normalize("NFD", t).encode("ascii", "ignore").decode().lower()
         )
 
-    pais_filter = "" if pais == "AMBOS" else "AND s.pais = ?"
+    pais_filter = "" if pais == "AMBOS" else "AND s.pais = %s"
     params: list = [today]
     if pais != "AMBOS":
         params.append(pais)
@@ -201,7 +201,7 @@ def _fuzzy_find_product(conn, query: str, pais: str, today: str) -> Optional[int
         FROM productos p
         JOIN precios_historicos ph ON ph.producto_id = p.id
         JOIN supermercados s ON s.id = ph.supermercado_id
-        WHERE ph.fecha_scraping = ? {pais_filter}
+        WHERE ph.fecha_scraping = %s {pais_filter}
         """,
         params,
     ).fetchall()
