@@ -1,0 +1,32 @@
+name: Daily Price Scraper
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # cada día a las 6:00 UTC (8:00 hora España)
+  workflow_dispatch:        # permite lanzarlo manualmente desde GitHub
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scrapers
+        env:
+          SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          DATABASE_URL:      ${{ secrets.DATABASE_URL }}
+          SECRET_KEY:        ${{ secrets.SECRET_KEY }}
+          DEFAULT_POSTAL_CODE: "28001"
+          DEFAULT_COUNTRY:   "ES"
+        run: python -m utils.scheduler

@@ -96,7 +96,7 @@ def _run_scrapers(usuario: Usuario) -> None:
     errores = []
     bar = st.progress(0, text="Iniciando…")
 
-    _SCRAPER_TIMEOUT = 45  # segundos máximo por supermercado (Mercadona necesita más)
+    _SCRAPER_TIMEOUT = 15  # segundos máximo por supermercado
 
     for i, cls in enumerate(scraper_classes):
         scraper = cls()
