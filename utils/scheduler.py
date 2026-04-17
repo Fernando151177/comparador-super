@@ -180,6 +180,139 @@ def _detect_and_save_alerts() -> int:
     return nuevas
 
 
+# ── Notificaciones email ──────────────────────────────────────────────────────
+
+def _send_price_drop_emails() -> int:
+    """Envía emails de bajada de precio a usuarios con notificaciones activas.
+
+    Por cada usuario con notificaciones activadas, busca bajadas de precio
+    en su lista y envía un email si hay al menos una.
+    Devuelve el número de emails enviados.
+    """
+    import unicodedata
+    from datetime import date
+    from difflib import SequenceMatcher
+    from database.connection import get_connection
+    from database.repositories.usuarios_repo import UsuariosRepo
+    from utils.config import PRICE_DROP_THRESHOLD
+    from utils.email_sender import build_price_drop_email, send_email
+
+    hoy = str(date.today())
+    repo = UsuariosRepo()
+    usuarios = repo.get_usuarios_con_notificaciones()
+
+    if not usuarios:
+        return 0
+
+    # Precios de hoy (cargamos una vez, filtramos por usuario)
+    with get_connection() as conn:
+        prices = conn.execute(
+            """
+            SELECT ph.producto_id, ph.supermercado_id,
+                   ph.precio AS precio_hoy,
+                   p.nombre  AS producto_nombre,
+                   s.nombre  AS supermercado_nombre
+            FROM precios_historicos ph
+            JOIN productos     p ON p.id = ph.producto_id
+            JOIN supermercados s ON s.id = ph.supermercado_id
+            WHERE ph.fecha_scraping = %s
+            """,
+            (hoy,),
+        ).fetchall()
+
+    prices_list = [dict(p) for p in prices]
+    if not prices_list:
+        return 0
+
+    def norm(t: str) -> str:
+        return (
+            unicodedata.normalize("NFD", t)
+            .encode("ascii", "ignore")
+            .decode()
+            .lower()
+            .strip()
+        )
+
+    mediana_cache: dict[tuple, float | None] = {}
+    enviados = 0
+
+    for u in usuarios:
+        usuario_id = str(u["id"])
+
+        with get_connection() as conn:
+            items = conn.execute(
+                "SELECT query_texto, cantidad FROM lista_usuario "
+                "WHERE usuario_id = %s AND comprado = FALSE",
+                (usuario_id,),
+            ).fetchall()
+
+        if not items:
+            continue
+
+        drops = []
+        for item in items:
+            qn = norm(item["query_texto"])
+            qw = set(qn.split())
+            best, best_score = None, 0.0
+            for p in prices_list:
+                nn = norm(p["producto_nombre"])
+                sim = SequenceMatcher(None, qn, nn).ratio()
+                ov = len(qw & set(nn.split()))
+                total = sim + (ov / max(len(qw), 1)) * 0.30
+                if total > best_score:
+                    best_score, best = total, p
+            if best is None or best_score < 0.40:
+                continue
+
+            key = (best["producto_id"], best["supermercado_id"])
+            if key not in mediana_cache:
+                with get_connection() as conn:
+                    hist = conn.execute(
+                        """SELECT precio FROM precios_historicos
+                           WHERE producto_id = %s AND supermercado_id = %s
+                             AND fecha_scraping < %s
+                           ORDER BY fecha_scraping DESC LIMIT 30""",
+                        (best["producto_id"], best["supermercado_id"], hoy),
+                    ).fetchall()
+                if len(hist) < 3:
+                    mediana_cache[key] = None
+                else:
+                    ps = sorted(float(r["precio"]) for r in hist)
+                    mediana_cache[key] = ps[len(ps) // 2]
+
+            mediana = mediana_cache[key]
+            if mediana is None or mediana == 0:
+                continue
+
+            precio_hoy_val = float(best["precio_hoy"])
+            descuento = (mediana - precio_hoy_val) / mediana
+            if descuento >= PRICE_DROP_THRESHOLD:
+                pct = round(descuento * 100, 1)
+                ahorro_abs = round((mediana - precio_hoy_val) * int(item["cantidad"]), 2)
+                drops.append({
+                    "producto_nombre":     item["query_texto"],
+                    "supermercado_nombre": best["supermercado_nombre"],
+                    "precio_hoy":          precio_hoy_val,
+                    "precio_habitual":     round(mediana, 2),
+                    "pct_bajada":          pct,
+                    "ahorro_abs":          ahorro_abs,
+                })
+
+        if not drops:
+            continue
+
+        html = build_price_drop_email(u["nombre"], drops)
+        ok = send_email(
+            to=u["email"],
+            subject=f"📉 {len(drops)} bajada(s) de precio en tu lista — Smart Shopping",
+            html=html,
+        )
+        if ok:
+            enviados += 1
+
+    return enviados
+
+
 # ── Orquestación principal ────────────────────────────────────────────────────
 
 def run_all_scrapers() -> None:
@@ -227,6 +360,14 @@ def run_all_scrapers() -> None:
         print(f"[Scheduler] {n_alertas} alertas nuevas generadas.")
     except Exception as exc:
         print(f"[Scheduler] Error en detección de alertas: {exc}")
+
+    # ── Notificaciones por email ──────────────────────────────────────────────
+    print("\n[Scheduler] Enviando notificaciones por email…")
+    try:
+        n_emails = _send_price_drop_emails()
+        print(f"[Scheduler] {n_emails} email(s) enviados.")
+    except Exception as exc:
+        print(f"[Scheduler] Error en notificaciones: {exc}")
 
     elapsed = (datetime.now() - start).seconds
     print(f"\n{'='*55}")

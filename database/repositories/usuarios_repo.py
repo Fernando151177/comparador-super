@@ -40,6 +40,25 @@ class UsuariosRepo:
                 (usuario_id,),
             )
 
+    def update_notificaciones_email(self, usuario_id: str, activo: bool) -> None:
+        self._set_config(usuario_id, "notificaciones_email", "true" if activo else "false")
+
+    def get_usuarios_con_notificaciones(self) -> list[dict]:
+        """Devuelve usuarios con notificaciones activas y su email."""
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT u.id, u.nombre, u.email
+                FROM usuarios u
+                JOIN configuracion_usuario cu
+                  ON cu.usuario_id = u.id
+                 AND cu.clave = 'notificaciones_email'
+                 AND cu.valor = 'true'
+                WHERE u.activo = TRUE
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def update_favoritos(self, usuario_id: str, codigos: list[str]) -> None:
         """Guarda la lista de supermercados favoritos del usuario."""
         import json
@@ -165,6 +184,7 @@ class UsuariosRepo:
             coste = float(cfg.get("coste_desplazamiento", "0"))
         except Exception:
             coste = 0.0
+        notif = cfg.get("notificaciones_email", "false") == "true"
         return Usuario(
             id=str(row["id"]),
             nombre=row["nombre"],
@@ -178,4 +198,5 @@ class UsuariosRepo:
             activo=bool(row["activo"]),
             supermercados_favoritos=favoritos,
             coste_desplazamiento=coste,
+            notificaciones_email=notif,
         )

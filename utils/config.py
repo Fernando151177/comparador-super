@@ -57,3 +57,10 @@ MAX_BULK_UNITS:          int   = 10    # máximo de unidades sugeridas
 # ── Scheduler ────────────────────────────────────────────────────────────────
 SCRAPING_HOUR:       str = "07:00"
 WEEKLY_SUMMARY_DAY:  str = "wednesday"
+
+# ── Email (SMTP) ──────────────────────────────────────────────────────────────
+SMTP_HOST:     str = _cfg("SMTP_HOST",     "smtp.gmail.com")
+SMTP_PORT:     int = int(_cfg("SMTP_PORT", "587"))
+SMTP_USER:     str = _cfg("SMTP_USER")      # cuenta remitente
+SMTP_PASSWORD: str = _cfg("SMTP_PASSWORD")  # contraseña o app-password
+SMTP_FROM:     str = _cfg("SMTP_FROM", "Smart Shopping Iberia <noreply@smartshopping.app>")

@@ -100,6 +100,29 @@ def mostrar(usuario: Usuario) -> None:
             st.session_state["usuario"] = updated
         st.rerun()
 
+    # ── Notificaciones por email ───────────────────────────────────────────────
+    st.markdown("---")
+    st.subheader("📧 Notificaciones por email")
+    st.caption(
+        "Cuando el scraper diario detecte una bajada de precio ≥15% en tu lista, "
+        "te avisamos por email. Requiere que el administrador configure el servidor SMTP."
+    )
+
+    with st.form("notif_form"):
+        notif_activa = st.toggle(
+            "Recibir alertas por email",
+            value=usuario.notificaciones_email,
+        )
+        save_notif = st.form_submit_button("💾 Guardar", type="primary")
+
+    if save_notif:
+        UsuariosRepo().update_notificaciones_email(usuario.id, notif_activa)
+        st.success("Preferencia de notificaciones guardada.")
+        updated = UsuariosRepo().get_by_id(usuario.id)
+        if updated:
+            st.session_state["usuario"] = updated
+        st.rerun()
+
     # ── Seguridad ─────────────────────────────────────────────────────────────
     st.markdown("---")
     st.subheader("Seguridad")
