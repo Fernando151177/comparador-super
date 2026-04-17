@@ -64,7 +64,9 @@ def _relevant_categories(queries: list[str], all_cats: list[dict]) -> list[dict]
         return all_cats
 
     # Filtrar categorías de Mercadona por nombre
+    # Incluir también los nombres de los grupos (p.ej. "fruta", "verdura", "carne")
     group_terms = {kw for g in needed_groups for kw in _CATEGORY_KEYWORDS[g]}
+    group_terms |= needed_groups  # "fruta" matchea "Fruta y verdura", etc.
     relevant = []
     for cat in all_cats:
         cat_name = _norm(cat.get("name", ""))
@@ -149,7 +151,15 @@ class MercadonaESScraper(BaseScraper):
 
         # 2. Filtrar solo las categorías relevantes para las queries
         relevant = _relevant_categories(queries, all_cats)
-        ids_key = ",".join(str(c["id"]) for c in relevant)
+        # Extraer IDs de las SUBcategorías (nivel 2), no los top-level
+        # Estructura: top-level[id=1] → subcats[id=27,28,29] → products
+        subcats = []
+        for cat in relevant:
+            for sub in cat.get("categories", []):
+                subcats.append({"id": sub["id"], "name": sub.get("name", cat.get("name", ""))})
+        if not subcats:
+            return []
+        ids_key = ",".join(str(sub["id"]) for sub in subcats)
 
         # 3. Descargar solo esas categorías (cacheado 1h)
         catalogue = _cached_catalogue(self.codigo_postal, ids_key)
@@ -171,10 +181,18 @@ class MercadonaESScraper(BaseScraper):
     def _set_postal_code(self) -> None:
         if self._postal_set:
             return
-        self.post(
-            f"{_BASE_URL}/postal-codes/{self.codigo_postal}/",
-            extra_headers={"Content-Type": "application/json"},
-        )
+        # El endpoint puede devolver 404 dependiendo de la versión de la API;
+        # si falla, el catálogo sigue funcionando sin CP establecido.
+        try:
+            import requests as _r
+            resp = self.session.post(
+                f"{_BASE_URL}/postal-codes/{self.codigo_postal}/",
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+        except Exception:
+            pass  # El catálogo funciona igualmente
         self._postal_set = True
 
     def _fetch_categories(self) -> list[dict]:
