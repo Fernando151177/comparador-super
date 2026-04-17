@@ -17,11 +17,11 @@ from typing import Optional
 from domain.models import ScrapedProduct
 from scrapers.base import BaseScraper
 
-_SEARCH_URL = "https://www.cashfamily.es/busqueda"
-_PRODUCT_BASE = "https://www.cashfamily.es"
+_SEARCH_URL = "https://www.familycash.es/busqueda"
+_PRODUCT_BASE = "https://www.familycash.es"
 
 # Alternativa si el dominio principal no funciona
-_SEARCH_URL_ALT = "https://www.cash-family.es/search"
+_SEARCH_URL_ALT = "https://www.familycash.es/search"
 
 
 def _normalize(text: str) -> str:
@@ -41,7 +41,7 @@ def _similarity(a: str, b: str) -> float:
 class CashFamilyScraper(BaseScraper):
     """Scraper para cashfamily.es."""
 
-    NOMBRE = "Cash Family"
+    NOMBRE = "Family Cash"
     CODIGO = "CASH_FAMILY_ES"
     PAIS = "ES"
 
@@ -52,7 +52,7 @@ class CashFamilyScraper(BaseScraper):
         self.session.headers.update({
             "Accept": "text/html,application/json,*/*",
             "Accept-Language": "es-ES,es;q=0.9",
-            "Referer": "https://www.cashfamily.es/",
+            "Referer": "https://www.familycash.es/",
         })
 
     # ── Public API ────────────────────────────────────────────────────────────

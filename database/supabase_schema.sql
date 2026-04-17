@@ -179,7 +179,7 @@ INSERT INTO supermercados (nombre, codigo, pais, base_url, url_online) VALUES
     ('Hipercor',    'HIPERCOR_ES',    'ES', 'https://www.hipercor.es',                'https://www.hipercor.es/supermercado'),
     ('Carrefour',   'CARREFOUR_ES',   'ES', 'https://www.carrefour.es',               'https://www.carrefour.es/supermercado'),
     ('Día',         'DIA_ES',         'ES', 'https://www.dia.es',                     'https://www.dia.es/tienda-online'),
-    ('Cash Family', 'CASH_FAMILY_ES', 'ES', 'https://www.cashfamily.es',              NULL),
+    ('Family Cash', 'CASH_FAMILY_ES', 'ES', 'https://www.familycash.es',              NULL),
     ('Continente',  'CONTINENTE_PT',  'PT', 'https://www.continente.pt',              'https://www.continente.pt'),
     ('Pingo Doce',  'PINGO_DOCE_PT',  'PT', 'https://www.pingodoce.pt',               'https://www.pingodoce.pt/compras-online'),
     ('Modelo',      'MODELO_PT',      'PT', 'https://www.continente.pt/lojas/modelo', NULL),
