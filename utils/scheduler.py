@@ -38,91 +38,141 @@ def _load_all_queries() -> list[str]:
 def _detect_and_save_alerts() -> int:
     """Detecta bajadas de precio y crea alertas para los usuarios afectados.
 
+    Usa fuzzy matching entre query_texto y productos con precio hoy,
+    ya que lista_usuario.producto_id suele ser NULL.
+
     Compara el precio de hoy con la mediana de los últimos 30 días.
     Solo genera alerta si la bajada supera PRICE_DROP_THRESHOLD y el ahorro
     absoluto supera MIN_SAVINGS_ALERT.
 
     Devuelve el número de alertas nuevas generadas.
     """
+    import unicodedata
     from datetime import date
+    from difflib import SequenceMatcher
     from database.connection import get_connection
     from database.repositories.alertas_repo import AlertasRepo
     from utils.config import PRICE_DROP_THRESHOLD, MIN_SAVINGS_ALERT
+
+    def norm(t: str) -> str:
+        return (
+            unicodedata.normalize("NFD", t)
+            .encode("ascii", "ignore")
+            .decode()
+            .lower()
+            .strip()
+        )
 
     hoy = str(date.today())
     repo = AlertasRepo()
     nuevas = 0
 
+    # Todos los items activos de todos los usuarios
     with get_connection() as conn:
-        # Productos de la lista de cada usuario con precio hoy
-        rows = conn.execute(
+        items = conn.execute(
+            "SELECT usuario_id, query_texto, cantidad FROM lista_usuario "
+            "WHERE comprado = FALSE"
+        ).fetchall()
+
+    if not items:
+        return 0
+
+    # Precios de hoy con metadata de producto
+    with get_connection() as conn:
+        prices = conn.execute(
             """
-            SELECT DISTINCT lu.usuario_id, lu.producto_id, lu.cantidad,
-                            ph.precio AS precio_hoy,
-                            ph.supermercado_id,
-                            p.nombre  AS producto_nombre
-            FROM lista_usuario lu
-            JOIN precios_historicos ph ON ph.producto_id = lu.producto_id
-                                     AND ph.fecha_scraping = %s
-            JOIN productos p ON p.id = lu.producto_id
-            WHERE lu.comprado = FALSE
-              AND lu.producto_id IS NOT NULL
+            SELECT ph.producto_id, ph.supermercado_id,
+                   ph.precio AS precio_hoy,
+                   p.nombre  AS producto_nombre
+            FROM precios_historicos ph
+            JOIN productos p ON p.id = ph.producto_id
+            WHERE ph.fecha_scraping = %s
             """,
             (hoy,),
         ).fetchall()
 
-    for row in rows:
-        # Mediana de los últimos 30 días (excluyendo hoy)
-        with get_connection() as conn:
-            hist = conn.execute(
-                """
-                SELECT precio FROM precios_historicos
-                WHERE producto_id = %s
-                  AND supermercado_id = %s
-                  AND fecha_scraping < %s
-                ORDER BY fecha_scraping DESC
-                LIMIT 30
-                """,
-                (row["producto_id"], row["supermercado_id"], hoy),
-            ).fetchall()
+    if not prices:
+        return 0
 
-        if len(hist) < 3:
-            continue  # sin suficiente historial
+    prices_list = [dict(p) for p in prices]
 
-        precios = sorted(float(r["precio"]) for r in hist)
-        mediana = precios[len(precios) // 2]
-        precio_hoy = float(row["precio_hoy"])
+    # Cache de medianas para evitar consultas repetidas
+    mediana_cache: dict[tuple, float | None] = {}
 
-        if mediana == 0:
+    for item in items:
+        usuario_id = str(item["usuario_id"])
+        query = item["query_texto"]
+        cantidad = int(item["cantidad"])
+        qn = norm(query)
+        qw = set(qn.split())
+
+        # Mejor coincidencia fuzzy
+        best, best_score = None, 0.0
+        for p in prices_list:
+            nn = norm(p["producto_nombre"])
+            sim = SequenceMatcher(None, qn, nn).ratio()
+            ov = len(qw & set(nn.split()))
+            total = sim + (ov / max(len(qw), 1)) * 0.30
+            if total > best_score:
+                best_score, best = total, p
+
+        if best is None or best_score < 0.40:
             continue
 
+        key = (best["producto_id"], best["supermercado_id"])
+
+        # Mediana histórica (con cache)
+        if key not in mediana_cache:
+            with get_connection() as conn:
+                hist = conn.execute(
+                    """
+                    SELECT precio FROM precios_historicos
+                    WHERE producto_id = %s AND supermercado_id = %s
+                      AND fecha_scraping < %s
+                    ORDER BY fecha_scraping DESC LIMIT 30
+                    """,
+                    (best["producto_id"], best["supermercado_id"], hoy),
+                ).fetchall()
+            if len(hist) < 3:
+                mediana_cache[key] = None
+            else:
+                ps = sorted(float(r["precio"]) for r in hist)
+                mediana_cache[key] = ps[len(ps) // 2]
+
+        mediana = mediana_cache[key]
+        if mediana is None or mediana == 0:
+            continue
+
+        precio_hoy = float(best["precio_hoy"])
         descuento = (mediana - precio_hoy) / mediana
 
         if descuento < PRICE_DROP_THRESHOLD:
             continue
 
-        ahorro_abs = (mediana - precio_hoy) * int(row["cantidad"])
+        ahorro_abs = (mediana - precio_hoy) * cantidad
         if ahorro_abs < MIN_SAVINGS_ALERT:
             continue
 
-        # Comprobar que no existe ya una alerta activa para este par usuario/producto
+        # Comprobar alerta existente (por usuario + query_texto)
         with get_connection() as conn:
             existing = conn.execute(
                 """
                 SELECT id FROM alertas
-                WHERE usuario_id = %s AND producto_id = %s
-                  AND tipo_alerta = 'BAJADA_PRECIO' AND activa = TRUE
+                WHERE usuario_id = %s AND tipo_alerta = 'BAJADA_PRECIO'
+                  AND activa = TRUE
+                  AND (producto_id = %s OR ean IS NULL)
+                LIMIT 1
                 """,
-                (str(row["usuario_id"]), row["producto_id"]),
+                (usuario_id, best["producto_id"]),
             ).fetchone()
 
         if existing:
             repo.mark_activated(existing["id"])
         else:
             repo.create(
-                usuario_id=str(row["usuario_id"]),
+                usuario_id=usuario_id,
                 tipo_alerta="BAJADA_PRECIO",
-                producto_id=row["producto_id"],
+                producto_id=best["producto_id"],
                 umbral_precio=precio_hoy,
             )
             nuevas += 1
