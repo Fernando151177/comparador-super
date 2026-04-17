@@ -21,14 +21,14 @@ from scrapers.pt import (
 
 # Lista completa para el scheduler
 ALL_SCRAPERS_ES = [
-    MercadonaESScraper,
-    LidlESScraper,
-    CarrefourESScraper,
-    AlcampoScraper,
-    DiaScraper,
-    HipercorScraper,
-    AhorramasScraper,
-    CashFamilyScraper,
+    LidlESScraper,       # API pública — funciona desde Streamlit Cloud
+    MercadonaESScraper,  # Catálogo completo — lento pero funciona
+    # CarrefourESScraper  — bloquea IPs de servidor
+    # AlcampoScraper      — bloquea IPs de servidor
+    # DiaScraper          — bloquea IPs de servidor
+    # HipercorScraper     — bloquea IPs de servidor
+    # AhorramasScraper    — bloquea IPs de servidor
+    # CashFamilyScraper   — bloquea IPs de servidor
 ]
 
 ALL_SCRAPERS_PT = [

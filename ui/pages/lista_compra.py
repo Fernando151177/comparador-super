@@ -74,7 +74,14 @@ def _run_scrapers(usuario: Usuario) -> None:
         st.warning("Tu lista está vacía.")
         return
 
-    queries = [item["query_texto"] for item in items]
+    # Excluir EANs puros (números largos) de la búsqueda por nombre
+    queries = [
+        item["query_texto"] for item in items
+        if not item["query_texto"].strip().isdigit()
+    ]
+    if not queries:
+        st.warning("Todos los productos son códigos de barras — añade nombres de producto.")
+        return
 
     if usuario.pais_activo == "ES":
         scraper_classes = ALL_SCRAPERS_ES
@@ -89,7 +96,7 @@ def _run_scrapers(usuario: Usuario) -> None:
     errores = []
     bar = st.progress(0, text="Iniciando…")
 
-    _SCRAPER_TIMEOUT = 20  # segundos máximo por supermercado
+    _SCRAPER_TIMEOUT = 45  # segundos máximo por supermercado (Mercadona necesita más)
 
     for i, cls in enumerate(scraper_classes):
         scraper = cls()
