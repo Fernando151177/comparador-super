@@ -18,18 +18,47 @@ from utils.config import DEFAULT_POSTAL_CODE
 _BASE_URL = "https://tienda.mercadona.es/api"
 _PRODUCT_URL = "https://tienda.mercadona.es/product/{id}"
 
-# Palabras clave por categoría para seleccionar solo las relevantes
-_CATEGORY_KEYWORDS = {
-    "fruta":    ["limon", "platano", "manzana", "pera", "naranja", "fresa", "uva",
-                 "melon", "sandia", "kiwi", "mango", "cereza", "ciruela", "nectarina"],
-    "verdura":  ["pimiento", "tomate", "lechuga", "cebolla", "ajo", "zanahoria",
-                 "patata", "pepino", "calabacin", "brocoli", "espinaca", "acelga"],
-    "lacteo":   ["leche", "yogur", "queso", "mantequilla", "nata", "huevo"],
-    "carne":    ["pollo", "ternera", "cerdo", "pavo", "cordero", "jamon", "chorizo"],
-    "pescado":  ["salmon", "merluza", "atun", "sardina", "bacalao", "gamba", "mejillon"],
-    "pan":      ["pan", "barra", "tostada", "galleta", "cereal"],
-    "bebida":   ["agua", "zumo", "refresco", "cerveza", "vino", "cafe", "te"],
-    "limpieza": ["detergente", "suavizante", "friegaplatos", "bayeta", "papel"],
+# Mapa: palabra clave de query → substring que debe aparecer en el nombre
+# de la categoría TOP-LEVEL de Mercadona.
+# Esto limita las peticiones HTTP solo a las categorías realmente necesarias.
+# Nombres reales de Mercadona (normalizados):
+#   "fruta y verdura", "huevos, leche y mantequilla", "carne",
+#   "marisco y pescado", "charcuteria y quesos", "postres y yogures",
+#   "panaderia y pasteleria", "cereales y galletas", "agua y refrescos",
+#   "bodega", "aceite, especias y salsas", "limpieza y hogar", ...
+_QUERY_TO_CAT: dict[str, str] = {
+    # Fruta y verdura
+    "limon": "fruta",      "platano": "fruta",    "manzana": "fruta",
+    "pera": "fruta",       "naranja": "fruta",    "fresa": "fruta",
+    "uva": "fruta",        "melon": "fruta",      "sandia": "fruta",
+    "kiwi": "fruta",       "mango": "fruta",      "cereza": "fruta",
+    "ciruela": "fruta",    "nectarina": "fruta",
+    "pimiento": "verdura", "tomate": "verdura",   "lechuga": "verdura",
+    "cebolla": "verdura",  "ajo": "verdura",      "zanahoria": "verdura",
+    "patata": "verdura",   "pepino": "verdura",   "calabacin": "verdura",
+    "brocoli": "verdura",  "espinaca": "verdura", "acelga": "verdura",
+    # Huevos, leche y mantequilla
+    "leche": "leche",      "huevo": "huevo",      "mantequilla": "mantequilla",
+    "nata": "nata",
+    # Postres y yogures
+    "yogur": "yogur",
+    # Charcutería y quesos
+    "queso": "queso",      "jamon": "charcuteria",  "chorizo": "charcuteria",
+    # Carne
+    "pollo": "carne",      "ternera": "carne",    "cerdo": "carne",
+    "pavo": "carne",       "cordero": "carne",
+    # Marisco y pescado
+    "salmon": "marisco",   "merluza": "marisco",  "atun": "conservas",
+    "sardina": "conservas","bacalao": "marisco",  "gamba": "marisco",
+    "mejillon": "marisco",
+    # Panadería y cereales
+    "pan": "panaderia",    "galleta": "cereales", "cereal": "cereales",
+    # Bebidas
+    "agua": "agua",        "zumo": "zumo",        "refresco": "agua",
+    "cerveza": "bodega",   "vino": "bodega",      "cafe": "cacao",
+    "te": "cacao",
+    # Aceite y limpieza
+    "aceite": "aceite",    "detergente": "limpieza", "suavizante": "limpieza",
 }
 
 
@@ -48,32 +77,30 @@ def _similarity(a: str, b: str) -> float:
 
 
 def _relevant_categories(queries: list[str], all_cats: list[dict]) -> list[dict]:
-    """Devuelve solo las categorías de Mercadona que coinciden con las queries."""
-    query_words = set()
+    """Devuelve solo las categorías de Mercadona que coinciden con las queries.
+
+    Usa _QUERY_TO_CAT para mapear cada palabra de query al substring del nombre
+    de categoría de Mercadona, evitando peticiones HTTP innecesarias.
+    """
+    query_words: set[str] = set()
     for q in queries:
         query_words.update(_norm(q).split())
 
-    # Detectar qué grupos de categorías necesitamos
-    needed_groups: set[str] = set()
-    for group, keywords in _CATEGORY_KEYWORDS.items():
-        if query_words & set(keywords):
-            needed_groups.add(group)
+    # Substrings de nombres de categoría que necesitamos
+    needed_substrings: set[str] = set()
+    for word in query_words:
+        if word in _QUERY_TO_CAT:
+            needed_substrings.add(_QUERY_TO_CAT[word])
 
-    if not needed_groups:
-        # Si no detectamos categoría específica, devolver todas
-        return all_cats
+    if not needed_substrings:
+        return all_cats  # query desconocida → buscar en todo
 
-    # Filtrar categorías de Mercadona por nombre
-    # Incluir también los nombres de los grupos (p.ej. "fruta", "verdura", "carne")
-    group_terms = {kw for g in needed_groups for kw in _CATEGORY_KEYWORDS[g]}
-    group_terms |= needed_groups  # "fruta" matchea "Fruta y verdura", etc.
     relevant = []
     for cat in all_cats:
         cat_name = _norm(cat.get("name", ""))
-        if any(kw in cat_name for kw in group_terms):
+        if any(sub in cat_name for sub in needed_substrings):
             relevant.append(cat)
 
-    # Si el filtro es demasiado estricto y no coincide nada, devolver todas
     return relevant if relevant else all_cats
 
 
