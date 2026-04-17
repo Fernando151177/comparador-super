@@ -50,8 +50,8 @@ class LidlESScraper(BaseScraper):
     CODIGO = "LIDL_ES"
     PAIS = "ES"
 
-    _MIN_SCORE: float = 0.60   # total (sim + bonus)
-    _MIN_SIM: float = 0.65     # similitud base sin bonus
+    _MIN_SCORE: float = 0.45   # total (sim + bonus)
+    _MIN_SIM: float = 0.50     # similitud base sin bonus
 
     def __init__(self) -> None:
         super().__init__()
@@ -188,9 +188,9 @@ class LidlESScraper(BaseScraper):
             nombre = p.get("nombre", "")
             product_words = set(_normalize(nombre).split())
 
-            # Requiere que TODAS las palabras clave de la query estén en el nombre
+            # Requiere al menos 1 palabra clave de la query en el nombre
             overlap = len(key_words & product_words)
-            if key_words and overlap < len(key_words):
+            if overlap == 0:
                 continue
 
             score = _similarity(query, nombre)

@@ -1,10 +1,9 @@
-"""Mercadona ES scraper — uses Mercadona's search API.
+"""Mercadona ES scraper — full catalogue download with Streamlit cache.
 
 Endpoints (no authentication required):
     POST https://tienda.mercadona.es/api/postal-codes/{cp}/
-         → sets the warehouse/region; must be called before fetching prices.
-    GET  https://tienda.mercadona.es/api/search/?query=TERM&lang=es
-         → direct product search (fast, no full catalogue download needed).
+    GET  https://tienda.mercadona.es/api/categories/?lang=es
+    GET  https://tienda.mercadona.es/api/categories/{id}/?lang=es
 """
 import unicodedata
 from typing import Optional
@@ -48,50 +47,94 @@ class MercadonaESScraper(BaseScraper):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def scrape_products(self, queries: list[str]) -> list[ScrapedProduct]:
-        """Searches Mercadona's API once per query (no full catalogue download)."""
-        self._ensure_postal_code()
+        """Fetches prices for the given queries from the Mercadona catalogue."""
+        catalogue = self._get_catalogue()
+        if not catalogue:
+            print(f"[{self.NOMBRE}] Empty catalogue — skipping.")
+            return []
 
         results: list[ScrapedProduct] = []
         for query in queries:
-            product = self._search(query)
-            if product:
-                results.append(self._to_scraped(query, product))
+            match = self._best_match(query, catalogue)
+            if match:
+                results.append(self._to_scraped(query, match))
             else:
                 print(f"[{self.NOMBRE}] Not found: {query!r}")
 
         return results
 
-    # ── Postal code ───────────────────────────────────────────────────────────
+    # ── Catalogue ─────────────────────────────────────────────────────────────
 
-    def _ensure_postal_code(self) -> None:
+    def _get_catalogue(self) -> list[dict]:
+        """Returns the full catalogue, using Streamlit cache when available."""
+        try:
+            import streamlit as st
+            return _cached_mercadona_catalogue(self.codigo_postal, self)
+        except Exception:
+            return self._download_catalogue()
+
+    def _download_catalogue(self) -> list[dict]:
+        """Downloads the full product catalogue from Mercadona."""
+        self._set_postal_code()
+        categories = self._fetch_categories()
+        if not categories:
+            return []
+
+        all_products: list[dict] = []
+        for cat in categories:
+            all_products.extend(self._fetch_category_products(cat["id"]))
+
+        return all_products
+
+    def _set_postal_code(self) -> None:
         if self._postal_set:
             return
-        resp = self.post(
+        self.post(
             f"{_BASE_URL}/postal-codes/{self.codigo_postal}/",
             extra_headers={"Content-Type": "application/json"},
         )
-        if resp is None:
-            print(f"[{self.NOMBRE}] Warning: could not set postal code {self.codigo_postal}.")
         self._postal_set = True
 
-    # ── Search ────────────────────────────────────────────────────────────────
-
-    def _search(self, query: str) -> Optional[dict]:
-        """Calls the search endpoint and returns the best matching product."""
-        resp = self.get(
-            f"{_BASE_URL}/search/",
-            params={"query": query, "lang": "es"},
-        )
+    def _fetch_categories(self) -> list[dict]:
+        resp = self.get(f"{_BASE_URL}/categories/", params={"lang": "es"})
         if resp is None:
-            return None
+            return []
+        return resp.json().get("results", [])
 
+    def _fetch_category_products(self, category_id: int) -> list[dict]:
+        resp = self.get(f"{_BASE_URL}/categories/{category_id}/", params={"lang": "es"})
+        if resp is None:
+            return []
         data = resp.json()
-        products = data.get("products", [])
-        if not products:
-            return None
+        products: list[dict] = []
+        for sub in data.get("categories", []):
+            for raw in sub.get("products", []):
+                parsed = self._parse_raw_product(raw, data.get("name", ""))
+                if parsed:
+                    products.append(parsed)
+        return products
 
-        # Return the first result (Mercadona's API already ranks by relevance)
-        return self._parse_raw_product(products[0])
+    # ── Matching ─────────────────────────────────────────────────────────────
+
+    def _best_match(self, query: str, catalogue: list[dict]) -> Optional[dict]:
+        from difflib import SequenceMatcher
+        import unicodedata as ud
+
+        def norm(t: str) -> str:
+            return ud.normalize("NFD", t).encode("ascii", "ignore").decode().lower().strip()
+
+        query_words = set(norm(query).split())
+        best_score, best = 0.0, None
+        for product in catalogue:
+            nombre = product.get("nombre", "")
+            if not nombre:
+                continue
+            score = SequenceMatcher(None, norm(query), norm(nombre)).ratio()
+            overlap = len(query_words & set(norm(nombre).split()))
+            total = score + (overlap / max(len(query_words), 1)) * 0.30
+            if total > best_score:
+                best_score, best = total, product
+        return best if best_score >= 0.35 else None
 
     def _parse_raw_product(self, raw: dict) -> Optional[dict]:
         """Extracts a normalised product dict from a raw API response item."""
@@ -152,6 +195,20 @@ class MercadonaESScraper(BaseScraper):
             disponible=True,
             nombre_buscado=query,
         )
+
+
+# ── Streamlit cache (evita descargar el catálogo en cada búsqueda) ────────────
+
+try:
+    import streamlit as st
+
+    @st.cache_data(ttl=3600, show_spinner="Descargando catálogo Mercadona…")
+    def _cached_mercadona_catalogue(codigo_postal: str, scraper) -> list[dict]:
+        return scraper._download_catalogue()
+
+except ImportError:
+    def _cached_mercadona_catalogue(codigo_postal: str, scraper) -> list[dict]:
+        return scraper._download_catalogue()
 
 
 # ── Manual testing ────────────────────────────────────────────────────────────
