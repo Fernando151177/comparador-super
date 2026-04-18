@@ -1,20 +1,43 @@
 """Scheduler diario de scraping y detección de alertas.
 
 Uso:
-    python -m utils.scheduler           # ejecuta scrapers ahora mismo
-    python -m utils.scheduler --daemon  # espera SCRAPING_HOUR y repite cada 24 h
+    python -m utils.scheduler              # ejecuta scrapers ahora mismo
+    python -m utils.scheduler --daemon     # bucle daemon: scraping diario + resumen semanal
+    python -m utils.scheduler --summary    # envía solo el resumen semanal ahora
 """
+import concurrent.futures
+import logging
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from utils.config import SCRAPING_HOUR
+from utils.config import SCRAPING_HOUR, WEEKLY_SUMMARY_DAY
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+_LOG_FILE = Path(__file__).resolve().parent.parent / "logs" / "scheduler.log"
+_LOG_FILE.parent.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(_LOG_FILE, encoding="utf-8"),
+    ],
+)
+log = logging.getLogger("scheduler")
+
+# Timeout por tipo de scraper (segundos)
+_TIMEOUT_PLAYWRIGHT = 240
+_TIMEOUT_DEFAULT    = 90
 
 
-# ── Carga de queries desde la base de datos ───────────────────────────────────
+# ── Carga de queries ──────────────────────────────────────────────────────────
 
 def _load_all_queries() -> list[str]:
     """Devuelve la lista única de query_texto de todos los usuarios activos."""
@@ -29,26 +52,59 @@ def _load_all_queries() -> list[str]:
             """
         ).fetchall()
     queries = [r["query_texto"] for r in rows]
-    print(f"[Scheduler] {len(queries)} búsquedas cargadas de la base de datos.")
+    log.info(f"{len(queries)} búsquedas cargadas de la base de datos.")
     return queries
 
 
-# ── Detección de alertas por bajada de precio ─────────────────────────────────
+# ── Scraping con timeout ──────────────────────────────────────────────────────
+
+def _run_one_scraper(
+    cls,
+    queries: list[str],
+    productos_repo,
+    precios_repo,
+) -> int:
+    """Ejecuta un scraper con timeout, guarda resultados y devuelve precios guardados."""
+    from scrapers.playwright_base import PlaywrightBaseScraper
+
+    scraper = cls()
+    timeout = _TIMEOUT_PLAYWRIGHT if isinstance(scraper, PlaywrightBaseScraper) else _TIMEOUT_DEFAULT
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(scraper.run, queries if queries else None)
+            results = future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        log.warning(f"[{scraper.NOMBRE}] Timeout tras {timeout}s — saltando.")
+        return 0
+    except Exception as exc:
+        log.error(f"[{scraper.NOMBRE}] Error inesperado: {exc}")
+        return 0
+
+    guardados = 0
+    for sp in results:
+        try:
+            pid = productos_repo.upsert_from_scraped(sp, scraper.supermarket_id)
+            if pid:
+                precios_repo.upsert_today(pid, scraper.supermarket_id, sp)
+                guardados += 1
+        except Exception as exc:
+            log.warning(f"[{scraper.NOMBRE}] Error guardando producto: {exc}")
+
+    log.info(f"[{scraper.NOMBRE}] {len(results)} encontrados — {guardados} guardados.")
+    return guardados
+
+
+# ── Detección de alertas ──────────────────────────────────────────────────────
 
 def _detect_and_save_alerts() -> int:
     """Detecta bajadas de precio y crea alertas para los usuarios afectados.
 
-    Usa fuzzy matching entre query_texto y productos con precio hoy,
-    ya que lista_usuario.producto_id suele ser NULL.
-
     Compara el precio de hoy con la mediana de los últimos 30 días.
     Solo genera alerta si la bajada supera PRICE_DROP_THRESHOLD y el ahorro
     absoluto supera MIN_SAVINGS_ALERT.
-
-    Devuelve el número de alertas nuevas generadas.
     """
     import unicodedata
-    from datetime import date
     from difflib import SequenceMatcher
     from database.connection import get_connection
     from database.repositories.alertas_repo import AlertasRepo
@@ -67,7 +123,6 @@ def _detect_and_save_alerts() -> int:
     repo = AlertasRepo()
     nuevas = 0
 
-    # Todos los items activos de todos los usuarios
     with get_connection() as conn:
         items = conn.execute(
             "SELECT usuario_id, query_texto, cantidad FROM lista_usuario "
@@ -77,7 +132,6 @@ def _detect_and_save_alerts() -> int:
     if not items:
         return 0
 
-    # Precios de hoy con metadata de producto
     with get_connection() as conn:
         prices = conn.execute(
             """
@@ -95,8 +149,6 @@ def _detect_and_save_alerts() -> int:
         return 0
 
     prices_list = [dict(p) for p in prices]
-
-    # Cache de medianas para evitar consultas repetidas
     mediana_cache: dict[tuple, float | None] = {}
 
     for item in items:
@@ -106,7 +158,6 @@ def _detect_and_save_alerts() -> int:
         qn = norm(query)
         qw = set(qn.split())
 
-        # Mejor coincidencia fuzzy
         best, best_score = None, 0.0
         for p in prices_list:
             nn = norm(p["producto_nombre"])
@@ -121,7 +172,6 @@ def _detect_and_save_alerts() -> int:
 
         key = (best["producto_id"], best["supermercado_id"])
 
-        # Mediana histórica (con cache)
         if key not in mediana_cache:
             with get_connection() as conn:
                 hist = conn.execute(
@@ -153,14 +203,12 @@ def _detect_and_save_alerts() -> int:
         if ahorro_abs < MIN_SAVINGS_ALERT:
             continue
 
-        # Comprobar alerta existente (por usuario + query_texto)
         with get_connection() as conn:
             existing = conn.execute(
                 """
                 SELECT id FROM alertas
                 WHERE usuario_id = %s AND tipo_alerta = 'BAJADA_PRECIO'
-                  AND activa = TRUE
-                  AND (producto_id = %s OR ean IS NULL)
+                  AND activa = TRUE AND producto_id = %s
                 LIMIT 1
                 """,
                 (usuario_id, best["producto_id"]),
@@ -180,17 +228,11 @@ def _detect_and_save_alerts() -> int:
     return nuevas
 
 
-# ── Notificaciones email ──────────────────────────────────────────────────────
+# ── Email: bajadas de precio diarias ─────────────────────────────────────────
 
 def _send_price_drop_emails() -> int:
-    """Envía emails de bajada de precio a usuarios con notificaciones activas.
-
-    Por cada usuario con notificaciones activadas, busca bajadas de precio
-    en su lista y envía un email si hay al menos una.
-    Devuelve el número de emails enviados.
-    """
+    """Envía emails de bajada de precio a usuarios con notificaciones activas."""
     import unicodedata
-    from datetime import date
     from difflib import SequenceMatcher
     from database.connection import get_connection
     from database.repositories.usuarios_repo import UsuariosRepo
@@ -198,13 +240,10 @@ def _send_price_drop_emails() -> int:
     from utils.email_sender import build_price_drop_email, send_email
 
     hoy = str(date.today())
-    repo = UsuariosRepo()
-    usuarios = repo.get_usuarios_con_notificaciones()
-
+    usuarios = UsuariosRepo().get_usuarios_con_notificaciones()
     if not usuarios:
         return 0
 
-    # Precios de hoy (cargamos una vez, filtramos por usuario)
     with get_connection() as conn:
         prices = conn.execute(
             """
@@ -238,7 +277,6 @@ def _send_price_drop_emails() -> int:
 
     for u in usuarios:
         usuario_id = str(u["id"])
-
         with get_connection() as conn:
             items = conn.execute(
                 "SELECT query_texto, cantidad FROM lista_usuario "
@@ -261,6 +299,7 @@ def _send_price_drop_emails() -> int:
                 total = sim + (ov / max(len(qw), 1)) * 0.30
                 if total > best_score:
                     best_score, best = total, p
+
             if best is None or best_score < 0.40:
                 continue
 
@@ -287,15 +326,13 @@ def _send_price_drop_emails() -> int:
             precio_hoy_val = float(best["precio_hoy"])
             descuento = (mediana - precio_hoy_val) / mediana
             if descuento >= PRICE_DROP_THRESHOLD:
-                pct = round(descuento * 100, 1)
-                ahorro_abs = round((mediana - precio_hoy_val) * int(item["cantidad"]), 2)
                 drops.append({
                     "producto_nombre":     item["query_texto"],
                     "supermercado_nombre": best["supermercado_nombre"],
                     "precio_hoy":          precio_hoy_val,
                     "precio_habitual":     round(mediana, 2),
-                    "pct_bajada":          pct,
-                    "ahorro_abs":          ahorro_abs,
+                    "pct_bajada":          round(descuento * 100, 1),
+                    "ahorro_abs":          round((mediana - precio_hoy_val) * int(item["cantidad"]), 2),
                 })
 
         if not drops:
@@ -313,14 +350,181 @@ def _send_price_drop_emails() -> int:
     return enviados
 
 
+# ── Email: resumen semanal ────────────────────────────────────────────────────
+
+def _send_weekly_summary() -> int:
+    """Envía el resumen semanal a usuarios con notificaciones activas.
+
+    Incluye los mejores precios de la semana para cada producto de la lista,
+    el ahorro total acumulado y los top descuentos de los últimos 7 días.
+    """
+    from database.connection import get_connection
+    from database.repositories.usuarios_repo import UsuariosRepo
+    from utils.config import PRICE_DROP_THRESHOLD
+    from utils.email_sender import build_weekly_summary_email, send_email
+
+    hoy = date.today()
+    hace_7 = str(hoy - timedelta(days=7))
+    hoy_str = str(hoy)
+
+    usuarios = UsuariosRepo().get_usuarios_con_notificaciones()
+    if not usuarios:
+        return 0
+
+    # Mejores precios de la semana con mediana histórica
+    with get_connection() as conn:
+        precios_semana = conn.execute(
+            """
+            SELECT
+                p.nombre        AS producto_nombre,
+                s.nombre        AS supermercado_nombre,
+                MIN(ph.precio)  AS precio_min_semana,
+                ph.fecha_scraping
+            FROM precios_historicos ph
+            JOIN productos     p ON p.id = ph.producto_id
+            JOIN supermercados s ON s.id = ph.supermercado_id
+            WHERE ph.fecha_scraping BETWEEN %s AND %s
+            GROUP BY p.nombre, s.nombre, ph.fecha_scraping
+            ORDER BY p.nombre
+            """,
+            (hace_7, hoy_str),
+        ).fetchall()
+
+    if not precios_semana:
+        log.info("[Scheduler] Sin precios esta semana para el resumen.")
+        return 0
+
+    # Índice de precios por producto (nombre normalizado → min precio + supermercado)
+    import unicodedata
+    from difflib import SequenceMatcher
+
+    def norm(t: str) -> str:
+        return (
+            unicodedata.normalize("NFD", t)
+            .encode("ascii", "ignore")
+            .decode()
+            .lower()
+            .strip()
+        )
+
+    # Agrupa el precio mínimo semanal por producto
+    best_weekly: dict[str, dict] = {}
+    for row in precios_semana:
+        key = norm(row["producto_nombre"])
+        precio = float(row["precio_min_semana"])
+        if key not in best_weekly or precio < best_weekly[key]["precio"]:
+            best_weekly[key] = {
+                "producto_nombre":     row["producto_nombre"],
+                "supermercado_nombre": row["supermercado_nombre"],
+                "precio":              precio,
+            }
+
+    # Medianas históricas (30 días previos a la semana)
+    hace_37 = str(hoy - timedelta(days=37))
+    with get_connection() as conn:
+        hist_rows = conn.execute(
+            """
+            SELECT p.nombre AS producto_nombre,
+                   ph.precio
+            FROM precios_historicos ph
+            JOIN productos p ON p.id = ph.producto_id
+            WHERE ph.fecha_scraping BETWEEN %s AND %s
+            """,
+            (hace_37, hace_7),
+        ).fetchall()
+
+    medianas: dict[str, float] = {}
+    from collections import defaultdict
+    hist_map: dict[str, list[float]] = defaultdict(list)
+    for r in hist_rows:
+        hist_map[norm(r["producto_nombre"])].append(float(r["precio"]))
+    for k, vals in hist_map.items():
+        if len(vals) >= 3:
+            sv = sorted(vals)
+            medianas[k] = sv[len(sv) // 2]
+
+    # Construir top deals: productos con bajada ≥ umbral respecto a mediana
+    top_deals = []
+    for key, info in best_weekly.items():
+        if key not in medianas:
+            continue
+        mediana = medianas[key]
+        if mediana == 0:
+            continue
+        descuento = (mediana - info["precio"]) / mediana
+        if descuento >= PRICE_DROP_THRESHOLD:
+            top_deals.append({
+                **info,
+                "precio_habitual": round(mediana, 2),
+                "pct_bajada":      round(descuento * 100, 1),
+            })
+    top_deals.sort(key=lambda d: d["pct_bajada"], reverse=True)
+
+    enviados = 0
+    for u in usuarios:
+        usuario_id = str(u["id"])
+        with get_connection() as conn:
+            items = conn.execute(
+                "SELECT query_texto, cantidad FROM lista_usuario "
+                "WHERE usuario_id = %s AND comprado = FALSE",
+                (usuario_id,),
+            ).fetchall()
+
+        if not items:
+            continue
+
+        # Filtrar top_deals relevantes para este usuario
+        qnorms = [norm(i["query_texto"]) for i in items]
+        user_deals = []
+        for deal in top_deals:
+            dkey = norm(deal["producto_nombre"])
+            for qn in qnorms:
+                qw = set(qn.split())
+                sim = SequenceMatcher(None, qn, dkey).ratio()
+                ov = len(qw & set(dkey.split()))
+                if sim + (ov / max(len(qw), 1)) * 0.30 >= 0.40:
+                    user_deals.append(deal)
+                    break
+
+        # Stats de la semana para este usuario
+        with get_connection() as conn:
+            sesiones = conn.execute(
+                """SELECT total_ahorrado FROM sesiones_compra
+                   WHERE usuario_id = %s
+                     AND fecha >= %s""",
+                (usuario_id, hace_7),
+            ).fetchall()
+
+        ahorro_semana = sum(float(s["total_ahorrado"] or 0) for s in sesiones)
+        n_compras = len(sesiones)
+
+        html = build_weekly_summary_email(
+            nombre_usuario=u["nombre"],
+            top_deals=user_deals[:5],
+            ahorro_semana=ahorro_semana,
+            n_compras=n_compras,
+            semana_inicio=hace_7,
+            semana_fin=hoy_str,
+        )
+        ok = send_email(
+            to=u["email"],
+            subject=f"📊 Tu resumen semanal de Smart Shopping — {hoy.strftime('%d/%m/%Y')}",
+            html=html,
+        )
+        if ok:
+            enviados += 1
+
+    return enviados
+
+
 # ── Orquestación principal ────────────────────────────────────────────────────
 
 def run_all_scrapers() -> None:
-    """Ejecuta todos los scrapers activos, guarda precios y genera alertas."""
+    """Ejecuta todos los scrapers activos (ES + PT), guarda precios y genera alertas."""
     from database.init_db import init_db
     from database.repositories.productos_repo import ProductosRepo
     from database.repositories.precios_repo import PreciosRepo
-    from scrapers import ALL_SCRAPERS_ES as ALL_SCRAPERS
+    from scrapers import ALL_SCRAPERS
 
     init_db()
 
@@ -330,60 +534,68 @@ def run_all_scrapers() -> None:
     precios_repo = PreciosRepo()
 
     start = datetime.now()
-    print(f"\n{'='*55}")
-    print(f"  Scraping iniciado: {start:%Y-%m-%d %H:%M:%S}")
-    print(f"  Queries: {len(queries)}")
-    print(f"{'='*55}\n")
+    log.info("=" * 55)
+    log.info(f"Scraping iniciado: {start:%Y-%m-%d %H:%M:%S}")
+    log.info(f"Scrapers: {len(ALL_SCRAPERS)}  |  Queries: {len(queries)}")
+    log.info("=" * 55)
 
     total_precios = 0
     for cls in ALL_SCRAPERS:
-        scraper = cls()
-        try:
-            # Mercadona descarga catálogo completo; el resto usa queries
-            if queries:
-                results = scraper.run(queries)
-            else:
-                results = scraper.run()
+        guardados = _run_one_scraper(cls, queries, productos_repo, precios_repo)
+        total_precios += guardados
 
-            for sp in results:
-                pid = productos_repo.upsert_from_scraped(sp, scraper.supermarket_id)
-                if pid:
-                    precios_repo.upsert_today(pid, scraper.supermarket_id, sp)
-                    total_precios += 1
-        except Exception as exc:
-            print(f"[{scraper.NOMBRE}] Error inesperado: {exc}")
-
-    # ── Detección de alertas ──────────────────────────────────────────────────
-    print("\n[Scheduler] Detectando bajadas de precio…")
+    log.info(f"Detección de bajadas de precio…")
     try:
         n_alertas = _detect_and_save_alerts()
-        print(f"[Scheduler] {n_alertas} alertas nuevas generadas.")
+        log.info(f"{n_alertas} alertas nuevas generadas.")
     except Exception as exc:
-        print(f"[Scheduler] Error en detección de alertas: {exc}")
+        log.error(f"Error en detección de alertas: {exc}")
 
-    # ── Notificaciones por email ──────────────────────────────────────────────
-    print("\n[Scheduler] Enviando notificaciones por email…")
+    log.info("Enviando notificaciones por email…")
     try:
         n_emails = _send_price_drop_emails()
-        print(f"[Scheduler] {n_emails} email(s) enviados.")
+        log.info(f"{n_emails} email(s) enviados.")
     except Exception as exc:
-        print(f"[Scheduler] Error en notificaciones: {exc}")
+        log.error(f"Error en notificaciones email: {exc}")
 
     elapsed = (datetime.now() - start).seconds
-    print(f"\n{'='*55}")
-    print(f"  Precios guardados : {total_precios}")
-    print(f"  Duración          : {elapsed}s")
-    print(f"{'='*55}\n")
+    log.info("=" * 55)
+    log.info(f"Precios guardados : {total_precios}")
+    log.info(f"Duración          : {elapsed}s")
+    log.info("=" * 55)
 
+
+def run_weekly_summary() -> None:
+    """Envía el resumen semanal de Smart Shopping a todos los usuarios."""
+    log.info("Enviando resumen semanal…")
+    try:
+        n = _send_weekly_summary()
+        log.info(f"Resumen semanal enviado a {n} usuario(s).")
+    except Exception as exc:
+        log.error(f"Error en resumen semanal: {exc}")
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import schedule
 
-    if "--daemon" in sys.argv:
-        print(f"Modo daemon — scraping programado a las {SCRAPING_HOUR} cada día.")
+    if "--summary" in sys.argv:
+        run_weekly_summary()
+
+    elif "--daemon" in sys.argv:
+        log.info(f"Modo daemon — scraping diario a las {SCRAPING_HOUR}, "
+                 f"resumen semanal los {WEEKLY_SUMMARY_DAY}.")
+
         schedule.every().day.at(SCRAPING_HOUR).do(run_all_scrapers)
+        getattr(schedule.every(), WEEKLY_SUMMARY_DAY).at("08:30").do(run_weekly_summary)
+
+        # Ejecutar inmediatamente al arrancar para no esperar al primer ciclo
+        run_all_scrapers()
+
         while True:
             schedule.run_pending()
             time.sleep(60)
+
     else:
         run_all_scrapers()

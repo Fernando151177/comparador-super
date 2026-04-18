@@ -140,3 +140,129 @@ def build_price_drop_email(nombre_usuario: str, drops: list[dict]) -> str:
 </body>
 </html>
 """
+
+
+def build_weekly_summary_email(
+    nombre_usuario: str,
+    top_deals: list[dict],
+    ahorro_semana: float,
+    n_compras: int,
+    semana_inicio: str,
+    semana_fin: str,
+) -> str:
+    """Genera el HTML del resumen semanal.
+
+    Args:
+        nombre_usuario: Nombre del usuario.
+        top_deals: Hasta 5 dicts con producto_nombre, supermercado_nombre,
+                   precio, precio_habitual, pct_bajada.
+        ahorro_semana: Total ahorrado en sesiones de compra esta semana.
+        n_compras:     Número de sesiones de compra registradas esta semana.
+        semana_inicio: Fecha inicio (YYYY-MM-DD).
+        semana_fin:    Fecha fin (YYYY-MM-DD).
+    """
+    # ── Top deals ─────────────────────────────────────────────────────────────
+    if top_deals:
+        filas_deals = ""
+        for d in top_deals:
+            filas_deals += f"""
+        <tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">
+            <b>{d['producto_nombre']}</b><br>
+            <span style="color:#666;font-size:0.85em">{d['supermercado_nombre']}</span>
+          </td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;
+                     text-decoration:line-through;color:#999">
+            {d['precio_habitual']:.2f} €
+          </td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;
+                     color:#28a745;font-weight:bold">
+            {d['precio']:.2f} €
+          </td>
+          <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;
+                     color:#28a745;font-weight:bold">
+            -{d['pct_bajada']:.1f}%
+          </td>
+        </tr>"""
+        deals_section = f"""
+      <h2 style="font-size:1rem;color:#333;margin:0 0 12px">
+        🏷️ Mejores ofertas esta semana en tu lista
+      </h2>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:#f0f4f8">
+            <th style="padding:8px 12px;text-align:left;font-size:0.85em;color:#555">Producto</th>
+            <th style="padding:8px 12px;text-align:left;font-size:0.85em;color:#555">Habitual</th>
+            <th style="padding:8px 12px;text-align:left;font-size:0.85em;color:#555">Esta semana</th>
+            <th style="padding:8px 12px;text-align:left;font-size:0.85em;color:#555">Bajada</th>
+          </tr>
+        </thead>
+        <tbody>{filas_deals}</tbody>
+      </table>"""
+    else:
+        deals_section = """
+      <p style="color:#666;font-style:italic">
+        Sin bajadas significativas esta semana en tu lista de la compra.
+      </p>"""
+
+    # ── Stats de ahorro ───────────────────────────────────────────────────────
+    if ahorro_semana > 0:
+        ahorro_bloque = f"""
+      <div style="margin-top:16px;padding:12px 16px;background:#d4edda;
+                  border-radius:6px;color:#155724">
+        💰 Esta semana has ahorrado <b>{ahorro_semana:.2f} €</b>
+        en {n_compras} compra{'s' if n_compras != 1 else ''} registrada{'s' if n_compras != 1 else ''}.
+      </div>"""
+    elif n_compras > 0:
+        ahorro_bloque = f"""
+      <div style="margin-top:16px;padding:12px 16px;background:#e2f0fb;
+                  border-radius:6px;color:#004085">
+        🛒 Has realizado {n_compras} compra{'s' if n_compras != 1 else ''} esta semana.
+      </div>"""
+    else:
+        ahorro_bloque = ""
+
+    # Formateo de fechas
+    try:
+        from datetime import datetime
+        fi = datetime.strptime(semana_inicio, "%Y-%m-%d").strftime("%d/%m")
+        ff = datetime.strptime(semana_fin,    "%Y-%m-%d").strftime("%d/%m/%Y")
+        rango = f"{fi} – {ff}"
+    except Exception:
+        rango = f"{semana_inicio} – {semana_fin}"
+
+    return f"""
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;background:#f8f9fa;margin:0;padding:20px">
+  <div style="max-width:600px;margin:0 auto;background:white;
+              border-radius:8px;overflow:hidden;
+              box-shadow:0 2px 8px rgba(0,0,0,.08)">
+
+    <!-- Cabecera -->
+    <div style="background:#1f77b4;padding:24px 32px">
+      <h1 style="color:white;margin:0;font-size:1.4rem">
+        📊 Tu resumen semanal
+      </h1>
+      <p style="color:#cce4f7;margin:6px 0 0">
+        Hola <b>{nombre_usuario}</b> — semana del {rango}
+      </p>
+    </div>
+
+    <!-- Contenido -->
+    <div style="padding:24px 32px">
+      {deals_section}
+      {ahorro_bloque}
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:16px 32px;background:#f8f9fa;
+                border-top:1px solid #e9ecef;font-size:0.8em;color:#999">
+      Smart Shopping Iberia · Puedes desactivar estas notificaciones
+      en <b>Mi perfil → Hábitos de compra</b>.
+    </div>
+  </div>
+</body>
+</html>
+"""

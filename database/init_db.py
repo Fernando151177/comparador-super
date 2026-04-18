@@ -26,6 +26,7 @@ _SUPERMERCADOS: list[tuple] = [
     ("Carrefour",   "CARREFOUR_ES",   "ES", "https://www.carrefour.es",                 "https://www.carrefour.es/supermercado"),
     ("Día",         "DIA_ES",         "ES", "https://www.dia.es",                       "https://www.dia.es/tienda-online"),
     ("Cash Family", "CASH_FAMILY_ES", "ES", "https://www.cashfamily.es",                None),
+    ("Eroski",      "EROSKI_ES",      "ES", "https://www.eroski.es",                    "https://www.eroski.es/compra-online"),
     # Portugal ────────────────────────────────────────────────────────────────
     ("Continente",  "CONTINENTE_PT",  "PT", "https://www.continente.pt",                "https://www.continente.pt"),
     ("Pingo Doce",  "PINGO_DOCE_PT",  "PT", "https://www.pingodoce.pt",                 "https://www.pingodoce.pt/compras-online"),
