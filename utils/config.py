@@ -64,3 +64,6 @@ SMTP_PORT:     int = int(_cfg("SMTP_PORT", "587"))
 SMTP_USER:     str = _cfg("SMTP_USER")      # cuenta remitente
 SMTP_PASSWORD: str = _cfg("SMTP_PASSWORD")  # contraseña o app-password
 SMTP_FROM:     str = _cfg("SMTP_FROM", "Smart Shopping Iberia <noreply@smartshopping.app>")
+
+# ── App ───────────────────────────────────────────────────────────────────────
+APP_URL:       str = _cfg("APP_URL", "https://comparador-super.streamlit.app")

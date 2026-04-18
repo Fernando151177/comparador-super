@@ -115,6 +115,30 @@ class UsuariosRepo:
                 params,
             )
 
+    def set_verification_token(self, usuario_id: str, token: str) -> None:
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE usuarios SET email_verificado = FALSE, token_verificacion = %s "
+                "WHERE id = %s",
+                (token, usuario_id),
+            )
+
+    def verify_email_token(self, token: str) -> Optional[str]:
+        """Valida el token; si es correcto marca email_verificado=TRUE y devuelve el usuario_id."""
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM usuarios WHERE token_verificacion = %s AND email_verificado = FALSE",
+                (token,),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                "UPDATE usuarios SET email_verificado = TRUE, token_verificacion = NULL "
+                "WHERE id = %s",
+                (row["id"],),
+            )
+        return str(row["id"])
+
     def deactivate(self, usuario_id: str) -> None:
         with get_connection() as conn:
             conn.execute(
@@ -199,4 +223,5 @@ class UsuariosRepo:
             supermercados_favoritos=favoritos,
             coste_desplazamiento=coste,
             notificaciones_email=notif,
+            email_verificado=bool(row.get("email_verificado", True)),
         )

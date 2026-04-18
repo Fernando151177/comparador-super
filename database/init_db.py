@@ -39,11 +39,9 @@ _SUPERMERCADOS: list[tuple] = [
 
 
 def init_db() -> None:
-    """Siembra los 15 supermercados en Supabase si todavía no existen.
-
-    Es seguro llamarla varias veces: ON CONFLICT DO NOTHING evita duplicados.
-    """
+    """Siembra los 15 supermercados y aplica migraciones idempotentes al arrancar."""
     with get_connection() as conn:
+        # Supermercados
         conn.executemany(
             """
             INSERT INTO supermercados (nombre, codigo, pais, base_url, url_online)
@@ -52,7 +50,19 @@ def init_db() -> None:
             """,
             _SUPERMERCADOS,
         )
-    print("[DB] Supermercados sincronizados con Supabase.")
+        # Migración: columnas de verificación de email (idempotente en Postgres)
+        try:
+            conn.execute(
+                "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS "
+                "email_verificado BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+            conn.execute(
+                "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS "
+                "token_verificacion TEXT DEFAULT NULL"
+            )
+        except Exception:
+            pass  # columnas ya existen
+    print("[DB] Supermercados sincronizados y migraciones aplicadas.")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,17 @@ st.set_page_config(
 from ui.styles import inject_css
 inject_css()
 
+# ── Verificación de email via enlace ─────────────────────────────────────────
+_verify_token = st.query_params.get("verify_token")
+if _verify_token:
+    from database.repositories.usuarios_repo import UsuariosRepo as _Repo
+    _uid = _Repo().verify_email_token(_verify_token)
+    if _uid:
+        st.success("✅ Email verificado correctamente. ¡Ya puedes disfrutar de todas las funciones!")
+    else:
+        st.warning("El enlace de verificación no es válido o ya fue usado.")
+    st.query_params.clear()
+
 # ── Comprobación de sesión ────────────────────────────────────────────────────
 from auth.session import get_usuario_actual
 
@@ -72,6 +83,14 @@ if usuario is None:
 
 # ── Con sesión: app completa ──────────────────────────────────────────────────
 st.session_state["usuario"] = usuario
+
+# ── Banner de verificación pendiente ─────────────────────────────────────────
+if not usuario.email_verificado:
+    st.info(
+        "📧 **Verifica tu email** — Revisa tu bandeja de entrada y haz clic en el enlace "
+        "de confirmación para activar las notificaciones de bajadas de precio.",
+        icon="📬",
+    )
 
 # ── Barra lateral — diseño premium ───────────────────────────────────────────
 _PAIS_FLAG = {"ES": "🇪🇸", "PT": "🇵🇹", "AMBOS": "🌍"}

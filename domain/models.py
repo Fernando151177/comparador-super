@@ -21,6 +21,7 @@ class Usuario:
     supermercados_favoritos: list = field(default_factory=list)  # ['MERCADONA_ES', ...]
     coste_desplazamiento: float = 0.0   # € por visita extra a un supermercado
     notificaciones_email: bool = False  # recibir email en bajadas de precio
+    email_verificado: bool = True       # False hasta que el usuario confirme su email
 
 
 @dataclass

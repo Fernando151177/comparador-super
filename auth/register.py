@@ -49,7 +49,23 @@ def registrar_usuario(
         raise RegistrationError(f"Error al crear la cuenta: {exc}") from exc
 
     token = crear_sesion(usuario.id)
+    _send_verification(usuario)
     return usuario, token
+
+
+def _send_verification(usuario) -> None:
+    try:
+        import uuid as _uuid
+        from utils.config import APP_URL
+        from utils.email_sender import build_verification_email, send_email
+
+        ver_token = str(_uuid.uuid4())
+        UsuariosRepo().set_verification_token(usuario.id, ver_token)
+        url = f"{APP_URL}?verify_token={ver_token}"
+        html = build_verification_email(usuario.nombre, url)
+        send_email(usuario.email, "Verifica tu cuenta — Smart Shopping Iberia", html)
+    except Exception as exc:
+        print(f"[Register] No se pudo enviar email de verificación: {exc}")
 
 
 def _validar(nombre: str, email: str, password: str) -> None:

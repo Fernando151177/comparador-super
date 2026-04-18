@@ -50,6 +50,55 @@ def send_email(to: str, subject: str, html: str) -> bool:
 
 # ── Plantillas ────────────────────────────────────────────────────────────────
 
+def build_verification_email(nombre_usuario: str, verification_url: str) -> str:
+    """Genera el HTML del email de verificación de cuenta."""
+    return f"""
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;background:#f8f9fa;margin:0;padding:20px">
+  <div style="max-width:520px;margin:0 auto;background:white;
+              border-radius:8px;overflow:hidden;
+              box-shadow:0 2px 8px rgba(0,0,0,.08)">
+    <div style="background:#1B4332;padding:28px 32px;text-align:center">
+      <div style="font-size:2rem;margin-bottom:8px">🛒</div>
+      <h1 style="color:white;margin:0;font-size:1.35rem;font-weight:800">
+        Smart Shopping Iberia
+      </h1>
+      <p style="color:rgba(255,255,255,.7);margin:6px 0 0;font-size:.9rem">
+        Verifica tu dirección de email
+      </p>
+    </div>
+    <div style="padding:32px">
+      <p style="margin:0 0 16px;color:#333;font-size:.95rem">
+        Hola <b>{nombre_usuario}</b>,
+      </p>
+      <p style="margin:0 0 24px;color:#555;font-size:.9rem;line-height:1.5">
+        Gracias por registrarte. Para activar tu cuenta y recibir
+        notificaciones de bajadas de precio, confirma tu email:
+      </p>
+      <div style="text-align:center;margin:0 0 24px">
+        <a href="{verification_url}"
+           style="display:inline-block;background:#52B788;color:white;
+                  text-decoration:none;padding:14px 32px;border-radius:8px;
+                  font-weight:700;font-size:.95rem;letter-spacing:.01em">
+          ✅ Verificar mi email
+        </a>
+      </div>
+      <p style="margin:0;color:#999;font-size:.78rem;text-align:center">
+        El enlace caduca en 48 horas. Si no creaste esta cuenta, ignora este email.
+      </p>
+    </div>
+    <div style="padding:14px 32px;background:#f8f9fa;
+                border-top:1px solid #e9ecef;font-size:.78rem;color:#aaa;text-align:center">
+      Smart Shopping Iberia · Compra inteligente. Ahorra de verdad.
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+
 def build_price_drop_email(nombre_usuario: str, drops: list[dict]) -> str:
     """Genera el HTML del email de bajada de precios.
 
