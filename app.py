@@ -67,6 +67,8 @@ st.sidebar.title(f"🛒 Smart Shopping {flag}")
 st.sidebar.caption(f"Hola, **{usuario.nombre}**")
 st.sidebar.markdown("---")
 
+from utils.config import ADMIN_EMAIL as _ADMIN_EMAIL
+
 _PAGES = [
     ("🏠 Inicio",               "home"),
     ("📋 Mi lista",             "lista"),
@@ -77,6 +79,9 @@ _PAGES = [
     ("📷 Escáner",              "scanner"),
     ("👤 Mi perfil",            "profile"),
 ]
+
+if _ADMIN_EMAIL and usuario.email.lower() == _ADMIN_EMAIL.lower():
+    _PAGES.append(("🔧 Admin",  "admin"))
 
 pagina = st.sidebar.radio(
     "Navegación",
@@ -145,4 +150,8 @@ elif page_key == "scanner":
 
 elif page_key == "profile":
     from ui.pages.perfil import mostrar
+    mostrar(usuario)
+
+elif page_key == "admin":
+    from ui.pages.admin import mostrar
     mostrar(usuario)
