@@ -1,4 +1,4 @@
-"""Escáner de código de barras — usa la cámara del móvil o del PC."""
+"""Escáner de código de barras — diseño premium."""
 import io
 
 import streamlit as st
@@ -7,13 +7,16 @@ from pyzbar import pyzbar
 
 from database.connection import get_connection
 from domain.models import Usuario
+from ui.styles import page_header, section_header, empty_state
 
 
 def mostrar(usuario: Usuario) -> None:
-    st.title("📷 Escáner de código de barras")
-    st.caption("Apunta la cámara al código de barras del producto para añadirlo a tu lista.")
+    page_header(
+        "Escáner de productos",
+        subtitle="Apunta la cámara al código de barras para añadirlo a tu lista.",
+        emoji="📷",
+    )
 
-    # ── Dos métodos: cámara o introducir EAN a mano ───────────────────────────
     tab_camara, tab_manual = st.tabs(["📸 Cámara", "⌨️ Introducir EAN"])
 
     with tab_camara:
@@ -23,14 +26,14 @@ def mostrar(usuario: Usuario) -> None:
         _tab_manual(usuario)
 
 
-# ── Pestaña cámara ────────────────────────────────────────────────────────────
-
 def _tab_camara(usuario: Usuario) -> None:
     st.markdown(
-        "**Instrucciones:**\n"
-        "1. Haz clic en *Tomar foto*\n"
-        "2. Apunta al código de barras del producto\n"
-        "3. La app lo detectará automáticamente"
+        '<div style="background:#EEF7F3;border-radius:10px;padding:12px 16px;'
+        'margin-bottom:16px;font-size:.88rem;color:#1B4332">'
+        '📌 <b>Instrucciones:</b> haz clic en <i>Tomar foto</i>, '
+        'apunta al código de barras y espera la detección automática.'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
     foto = st.camera_input("Tomar foto del código de barras")
@@ -43,21 +46,18 @@ def _tab_camara(usuario: Usuario) -> None:
             st.warning("No se detectó ningún código de barras. Inténtalo más cerca y con buena luz.")
             return
 
-        # Tomamos el primer código detectado
         ean = codigos[0].data.decode("utf-8")
         st.success(f"Código detectado: **{ean}**")
 
-        # Buscar el producto en la base de datos
         producto = _buscar_por_ean(ean)
 
         if producto:
-            st.info(f"Producto encontrado: **{producto['nombre']}** ({producto['supermercado']})")
+            st.info(f"Producto encontrado: **{producto['nombre']}** · {producto['supermercado']}")
             nombre_producto = producto["nombre"]
         else:
-            st.info("Producto no encontrado en la base de datos. Puedes añadirlo por su EAN.")
-            nombre_producto = ean  # usamos el EAN como texto de búsqueda
+            st.info("Producto no encontrado en la base de datos. Se añadirá por su EAN.")
+            nombre_producto = ean
 
-        # Formulario para añadir a la lista
         with st.form("add_scanned"):
             col1, col2 = st.columns([3, 1])
             with col1:
@@ -70,10 +70,9 @@ def _tab_camara(usuario: Usuario) -> None:
                 st.rerun()
 
 
-# ── Pestaña manual ────────────────────────────────────────────────────────────
-
 def _tab_manual(usuario: Usuario) -> None:
-    st.markdown("Introduce el código EAN del producto (los números del código de barras).")
+    section_header("⌨️ Introducir EAN manualmente",
+                   "Los números debajo del código de barras del producto.")
 
     with st.form("add_manual_ean", clear_on_submit=True):
         ean = st.text_input("Código EAN", placeholder="8410188112015", max_chars=14)
@@ -86,17 +85,15 @@ def _tab_manual(usuario: Usuario) -> None:
             _add_to_list(usuario.id, producto["nombre"], int(cantidad), ean.strip())
             st.success(f"✅ **{producto['nombre']}** añadido a tu lista.")
         else:
-            # No está en la BD, añadir con el EAN como nombre
             _add_to_list(usuario.id, ean.strip(), int(cantidad), ean.strip())
-            st.success(f"✅ EAN **{ean}** añadido a tu lista. El nombre se actualizará cuando se haga scraping.")
+            st.info(
+                f"EAN **{ean}** añadido. El nombre se actualizará con el próximo scraping."
+            )
 
-
-# ── Helpers de base de datos ──────────────────────────────────────────────────
 
 def _buscar_por_ean(ean: str) -> dict | None:
-    """Busca un producto por EAN y devuelve nombre + supermercado, o None."""
     with get_connection() as conn:
-        cur = conn.execute(
+        row = conn.execute(
             """
             SELECT p.nombre, s.nombre AS supermercado
             FROM productos p
@@ -105,13 +102,11 @@ def _buscar_por_ean(ean: str) -> dict | None:
             LIMIT 1
             """,
             (ean,),
-        )
-        row = cur.fetchone()
+        ).fetchone()
     return dict(row) if row else None
 
 
 def _add_to_list(usuario_id: str, query_texto: str, cantidad: int, ean: str) -> None:
-    """Añade un producto a la lista del usuario."""
     with get_connection() as conn:
         conn.execute(
             """
