@@ -29,10 +29,14 @@ from scrapers.pt import (
 ALL_SCRAPERS_ES = [
     LidlESScraper,           # API pública — funciona desde Streamlit Cloud
     MercadonaESScraper,      # API interna — catálogo completo
-    FACUACarrefourScraper,   # FACUA — datos verificados, sin bloqueo
-    FACUAAlcampoScraper,     # FACUA — datos verificados, sin bloqueo
-    FACUAHipercorScraper,    # FACUA — datos verificados, sin bloqueo
-    FACUADiaScraper,         # FACUA — datos verificados, sin bloqueo
+    CarrefourESScraper,      # API REST Carrefour — catálogo alimentación
+    AlcampoScraper,          # SFCC API Alcampo
+    DiaScraper,              # SAP Hybris API Día
+    HipercorScraper,         # El Corte Inglés API Hipercor
+    FACUACarrefourScraper,   # FACUA — datos verificados básicos (fallback)
+    FACUAAlcampoScraper,     # FACUA — datos verificados básicos (fallback)
+    FACUAHipercorScraper,    # FACUA — datos verificados básicos (fallback)
+    FACUADiaScraper,         # FACUA — datos verificados básicos (fallback)
     FACUAEroskiScraper,      # FACUA — datos verificados, sin bloqueo
     AhorramasScraper,        # Playwright stealth
     CashFamilyScraper,       # Playwright stealth (sin tienda online activa)

@@ -100,14 +100,64 @@ def _render_lista_resumen(usuario: Usuario, precios_hoy: list[dict]) -> None:
         ).fetchall()
 
     if not items:
-        empty_state(
-            "🛒",
-            "Tu lista está vacía",
-            "¡Empieza añadiendo productos en <b>📋 Mi lista</b>!",
+        st.markdown(
+            """
+            <div style="background:linear-gradient(135deg,#EEF7F3,#D8F3DC);border-radius:16px;
+                        padding:28px 32px;margin-bottom:8px;border:1px solid #B7E4C7">
+              <div style="font-size:1.5rem;font-weight:800;color:#1B4332;margin-bottom:6px">
+                👋 ¡Bienvenido a Smart Shopping!
+              </div>
+              <div style="color:#2D6A4F;font-size:.93rem;margin-bottom:22px">
+                Empieza en 3 sencillos pasos y ahorra en cada compra:
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:flex-start;gap:14px">
+                  <div style="min-width:36px;height:36px;background:#52B788;border-radius:50%;
+                              display:flex;align-items:center;justify-content:center;
+                              font-weight:800;color:white;font-size:1rem;flex-shrink:0">1</div>
+                  <div>
+                    <div style="font-weight:700;color:#1B4332;font-size:.92rem">
+                      📋 Añade productos a tu lista
+                    </div>
+                    <div style="color:#495057;font-size:.83rem;margin-top:2px">
+                      Ve a <b>Mi lista</b> y escribe los productos que compras habitualmente
+                      (leche, pan, fruta…).
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:flex-start;gap:14px">
+                  <div style="min-width:36px;height:36px;background:#40916C;border-radius:50%;
+                              display:flex;align-items:center;justify-content:center;
+                              font-weight:800;color:white;font-size:1rem;flex-shrink:0">2</div>
+                  <div>
+                    <div style="font-weight:700;color:#1B4332;font-size:.92rem">
+                      🔍 Consulta precios en tiempo real
+                    </div>
+                    <div style="color:#495057;font-size:.83rem;margin-top:2px">
+                      Pulsa <b>Consultar supermercados ahora</b> para ver los precios
+                      actualizados en Mercadona, Lidl, Carrefour y más.
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:flex-start;gap:14px">
+                  <div style="min-width:36px;height:36px;background:#2D6A4F;border-radius:50%;
+                              display:flex;align-items:center;justify-content:center;
+                              font-weight:800;color:white;font-size:1rem;flex-shrink:0">3</div>
+                  <div>
+                    <div style="font-weight:700;color:#1B4332;font-size:.92rem">
+                      🗺️ Optimiza tu ruta de compra
+                    </div>
+                    <div style="color:#495057;font-size:.83rem;margin-top:2px">
+                      El <b>Optimizador sábado</b> te dice dónde comprar cada producto
+                      para minimizar el gasto total.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        if st.button("➕ Añadir productos", type="primary", use_container_width=True):
-            st.session_state["page"] = "lista"
-            st.rerun()
         return
 
     def norm(t):

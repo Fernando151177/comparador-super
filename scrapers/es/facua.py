@@ -25,18 +25,37 @@ _BASE_URL = "https://super.facua.org"
 
 # Palabras clave → slug de categoría FACUA (ordenadas de más a menos específicas)
 _KEYWORD_TO_CAT: list[tuple[str, str]] = [
+    # Aceite de girasol (más específico primero)
     ("aceite girasol", "aceite-de-girasol"),
     ("aceite de girasol", "aceite-de-girasol"),
+    ("girasol", "aceite-de-girasol"),
+    # Aceite de oliva
     ("aceite oliva", "aceite-de-oliva"),
     ("aceite de oliva", "aceite-de-oliva"),
-    ("girasol", "aceite-de-girasol"),
     ("aove", "aceite-de-oliva"),
+    ("virgen extra", "aceite-de-oliva"),
+    ("oliva virgen", "aceite-de-oliva"),
     ("oliva", "aceite-de-oliva"),
+    # Huevos
+    ("huevos camperos", "huevos"),
+    ("huevos ecologicos", "huevos"),
+    ("huevos xl", "huevos"),
+    ("docena huevo", "huevos"),
     ("huevo", "huevos"),
+    ("huevos", "huevos"),
+    # Leche
+    ("leche sin lactosa", "leche"),
+    ("leche uht", "leche"),
+    ("leche fresca", "leche"),
+    ("leche entera", "leche"),
+    ("leche semidesnatada", "leche"),
+    ("leche desnatada", "leche"),
+    ("leche de avena", "leche"),
+    ("bebida vegetal", "leche"),
     ("leche", "leche"),
     ("lactosa", "leche"),
-    ("desnatada", "leche"),
     ("semidesnatada", "leche"),
+    ("desnatada", "leche"),
     ("entera", "leche"),
 ]
 
