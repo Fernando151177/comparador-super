@@ -47,13 +47,13 @@ def _bar_html(precio: float, precio_min: float, precio_max: float,
     rng = precio_max - precio_min if precio_max > precio_min else 1
     pct = int(((precio - precio_min) / rng) * 70) + 10  # 10-80%
     if is_min:
-        color = "#28a745"
-        badge = '<span style="color:#28a745;font-weight:bold"> ✓ MAS BARATO</span>'
+        color = "#52B788"
+        badge = '<span style="color:#1B4332;font-weight:700"> ✓ MÁS BARATO</span>'
     elif is_max:
-        color = "#dc3545"
-        badge = '<span style="color:#dc3545"> ✗ MAS CARO</span>'
+        color = "#E63946"
+        badge = '<span style="color:#E63946"> ✗ MÁS CARO</span>'
     else:
-        color = "#5b9bd5"
+        color = "#74C69D"
         badge = ""
 
     return f"""
@@ -88,8 +88,7 @@ def mostrar(usuario: Usuario) -> None:
         st.error("No hay producto seleccionado.")
         return
 
-    # Volver
-    if st.button("← Volver a la lista"):
+    if st.button("← Volver a la lista", type="secondary"):
         del st.session_state["detalle_producto"]
         st.rerun()
 

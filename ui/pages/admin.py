@@ -15,6 +15,7 @@ import streamlit as st
 
 from domain.models import Usuario
 from utils.config import ADMIN_EMAIL
+from ui.styles import page_header, section_header
 
 
 def mostrar(usuario: Usuario) -> None:
@@ -22,9 +23,11 @@ def mostrar(usuario: Usuario) -> None:
         st.error("Acceso restringido.")
         return
 
-    st.title("🔧 Panel de administración")
-    st.caption(f"Smart Shopping Iberia · {date.today().strftime('%d/%m/%Y')}")
-    st.markdown("---")
+    page_header(
+        "Panel de administración",
+        subtitle=f"Smart Shopping Iberia · {date.today().strftime('%d/%m/%Y')}",
+        emoji="🔧",
+    )
 
     _metricas_globales()
     st.markdown("---")
@@ -99,7 +102,7 @@ def _actividad_scrapers() -> None:
     hoy  = str(date.today())
     hace7 = str(date.today() - timedelta(days=7))
 
-    st.subheader("📡 Cobertura de scrapers")
+    section_header("📡 Cobertura de scrapers")
 
     with get_connection() as conn:
         rows = conn.execute(
@@ -143,7 +146,7 @@ def _actividad_scrapers() -> None:
 # ── Acciones rápidas ──────────────────────────────────────────────────────────
 
 def _acciones_rapidas() -> None:
-    st.subheader("⚡ Acciones")
+    section_header("⚡ Acciones rápidas")
 
     if st.button("🔄 Ejecutar scrapers ahora", use_container_width=True, type="primary"):
         with st.spinner("Ejecutando scrapers… (puede tardar varios minutos)"):
@@ -205,7 +208,7 @@ def _evolucion_precios() -> None:
         st.info("Sin historial de precios en los últimos 30 días.")
         return
 
-    st.subheader("📈 Precios guardados — últimos 30 días")
+    section_header("📈 Precios guardados — últimos 30 días")
 
     df = pd.DataFrame([dict(r) for r in rows])
     df["fecha"] = pd.to_datetime(df["fecha"])
@@ -229,7 +232,7 @@ def _evolucion_precios() -> None:
 def _tabla_usuarios() -> None:
     from database.connection import get_connection
 
-    st.subheader("👥 Usuarios registrados")
+    section_header("👥 Usuarios registrados")
 
     with get_connection() as conn:
         rows = conn.execute(
@@ -238,6 +241,7 @@ def _tabla_usuarios() -> None:
                 u.nombre,
                 u.email,
                 u.pais_activo                    AS pais,
+                u.email_verificado               AS verificado,
                 u.notificaciones_email           AS emails,
                 COUNT(l.id)                      AS items_lista,
                 COUNT(CASE WHEN a.activa THEN 1 END) AS alertas,
@@ -247,7 +251,7 @@ def _tabla_usuarios() -> None:
             LEFT JOIN alertas         a ON a.usuario_id = u.id
             WHERE u.activo = TRUE
             GROUP BY u.id, u.nombre, u.email, u.pais_activo,
-                     u.notificaciones_email, u.created_at
+                     u.email_verificado, u.notificaciones_email, u.created_at
             ORDER BY u.created_at DESC
             """
         ).fetchall()
@@ -257,6 +261,7 @@ def _tabla_usuarios() -> None:
         return
 
     df = pd.DataFrame([dict(r) for r in rows])
+    df["verificado"] = df["verificado"].apply(lambda v: "✅" if v else "⚠️")
     df["emails"] = df["emails"].apply(lambda v: "✅" if v else "—")
     if "created_at" in df.columns:
         df["created_at"] = pd.to_datetime(df["created_at"]).dt.strftime("%d/%m/%Y")
@@ -266,6 +271,7 @@ def _tabla_usuarios() -> None:
             "nombre":      "Nombre",
             "email":       "Email",
             "pais":        "País",
+            "verificado":  "Email OK",
             "emails":      "Notif.",
             "items_lista": "Items lista",
             "alertas":     "Alertas",
@@ -281,7 +287,7 @@ def _tabla_usuarios() -> None:
 def _top_queries() -> None:
     from database.connection import get_connection
 
-    st.subheader("🔍 Productos más buscados")
+    section_header("🔍 Productos más buscados")
 
     hoy = str(date.today())
 
