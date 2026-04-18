@@ -201,7 +201,7 @@ def _detect_category(query: str) -> str:
     return "📦 Otros"
 
 
-# ── Comparativa de precios (columna derecha) ──────────────────────────────────
+# ── Comparativa de precios ────────────────────────────────────────────────────
 
 def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> None:
     if not prices:
@@ -210,14 +210,23 @@ def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> N
 
     favoritos = usuario.supermercados_favoritos if usuario else []
 
+    # Supermercados activos: favoritos primero, luego el resto por cobertura
     super_codigos: dict[str, str] = {}
+    super_coverage: dict[str, int] = {}
     for p in prices:
-        super_codigos[p["supermercado_nombre"]] = p.get("supermercado_codigo", "")
+        s = p["supermercado_nombre"]
+        super_codigos[s] = p.get("supermercado_codigo", "")
+        super_coverage[s] = super_coverage.get(s, 0) + 1
 
     supers_fav   = sorted([n for n, c in super_codigos.items() if c in favoritos])
-    supers_otros = sorted([n for n, c in super_codigos.items() if c not in favoritos])
-    supers       = supers_fav + supers_otros
+    supers_otros = sorted(
+        [n for n, c in super_codigos.items() if c not in favoritos],
+        key=lambda n: -super_coverage.get(n, 0),
+    )
+    # Limitar a 8 columnas para que la tabla quepa en pantalla
+    supers = (supers_fav + supers_otros)[:8]
 
+    # ── Construir matriz de comparación ──────────────────────────────────────
     comparison: dict[str, dict] = {}
     for item in items:
         q = item["query_texto"]
@@ -230,134 +239,178 @@ def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> N
 
     section_header("💸 Comparativa de precios")
 
-    # ── Cabecera de tabla ──────────────────────────────────────────────────
-    header_cols = st.columns([3] + [2] * len(supers))
-    with header_cols[0]:
-        st.markdown(
-            '<div style="font-weight:700;font-size:.8rem;color:#6C757D;'
-            'text-transform:uppercase;letter-spacing:.06em">Producto</div>',
-            unsafe_allow_html=True,
-        )
-    for i, s in enumerate(supers):
-        with header_cols[i + 1]:
-            badge = "⭐ " if super_codigos.get(s, "") in favoritos else ""
-            st.markdown(
-                f'<div style="font-weight:700;font-size:.78rem;color:#1B4332;'
-                f'text-transform:uppercase;letter-spacing:.04em">{badge}{s}</div>',
-                unsafe_allow_html=True,
-            )
+    # ── Tabla HTML ────────────────────────────────────────────────────────────
+    th_style = (
+        "padding:10px 12px;font-size:.75rem;font-weight:700;color:#6C757D;"
+        "text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #DEE2E6;"
+        "white-space:nowrap;background:#FAFAFA"
+    )
+    td_base = (
+        "padding:10px 12px;vertical-align:top;border-bottom:1px solid #F0F0F0;"
+        "font-size:.88rem"
+    )
 
-    st.divider()
+    # Cabecera
+    header_cells = f'<th style="{th_style};text-align:left">Producto</th>'
+    for s in supers:
+        fav_mark = " ⭐" if super_codigos.get(s, "") in favoritos else ""
+        # Abreviar nombres largos de supermercados
+        label = s[:12] + ("…" if len(s) > 12 else "")
+        header_cells += (
+            f'<th style="{th_style};text-align:center" title="{s}">'
+            f'{label}{fav_mark}</th>'
+        )
 
     totals: dict[str, float] = {s: 0.0 for s in supers}
     found:  dict[str, int]   = {s: 0   for s in supers}
+    detail_map: dict[str, dict] = {}  # para los botones 🔍 de abajo
 
-    for item in items:
-        q        = item["query_texto"]
-        qty      = int(item["cantidad"])
-        row_data = comparison.get(q, {})
+    # Filas de productos
+    data_rows = ""
+    for idx, item in enumerate(items):
+        q   = item["query_texto"]
+        qty = int(item["cantidad"])
+        row = comparison.get(q, {})
 
         min_price = min(
-            (float(row_data[s]["precio"]) for s in supers if s in row_data),
+            (float(row[s]["precio"]) for s in supers if s in row),
             default=None,
         )
 
-        row_cols = st.columns([3] + [2] * len(supers) + [1])
-        with row_cols[0]:
-            st.markdown(
-                f'<div style="font-weight:600;font-size:.88rem;padding:4px 0">'
-                f'{q} <span style="color:#ADB5BD">×{qty}</span></div>',
-                unsafe_allow_html=True,
-            )
+        # Primera celda: nombre + cantidad
+        bg_row = "#FAFAFA" if idx % 2 == 0 else "white"
+        td_row = td_base + f";background:{bg_row}"
+        data_rows += (
+            f'<tr>'
+            f'<td style="{td_row};font-weight:600;min-width:140px">'
+            f'{q}'
+            f'<span style="color:#ADB5BD;font-size:.8rem;margin-left:6px">×{qty}</span>'
+            f'</td>'
+        )
 
-        for i, s in enumerate(supers):
-            with row_cols[i + 1]:
-                if s in row_data:
-                    p          = row_data[s]
-                    precio_unit = float(p["precio"])
-                    precio_kg   = p.get("precio_por_unidad_normalizado")
-                    unidad      = p.get("unidad_normalizacion") or "kg"
-                    total_item  = precio_unit * qty
-                    totals[s]  += total_item
-                    found[s]   += 1
+        first_match = None
+        for s in supers:
+            if s in row:
+                p            = row[s]
+                precio_unit  = float(p["precio"])
+                precio_kg_v  = p.get("precio_por_unidad_normalizado")
+                unidad       = p.get("unidad_normalizacion") or "kg"
+                totals[s]   += precio_unit * qty
+                found[s]    += 1
+                is_min       = min_price is not None and abs(precio_unit - min_price) < 0.001
 
-                    is_min = min_price is not None and abs(precio_unit - min_price) < 0.001
-                    if is_min:
-                        st.markdown(
-                            f'<div style="font-weight:800;color:#52B788;font-size:.9rem">'
-                            f'{precio_unit:.2f} €'
-                            f' {badge_html("min", "#D8F3DC", "#1B4332")}</div>',
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            f'<div style="font-size:.88rem">{precio_unit:.2f} €</div>',
-                            unsafe_allow_html=True,
-                        )
-                    if precio_kg:
-                        st.caption(f"{precio_kg:.2f} €/{unidad}")
-                    nombre_real = p.get("producto_nombre", "")
-                    if _norm(nombre_real) != _norm(q):
-                        st.caption(f"↳ {nombre_real[:30]}")
-                else:
-                    st.markdown('<div style="color:#DEE2E6;font-size:.85rem">—</div>', unsafe_allow_html=True)
+                if first_match is None:
+                    first_match = p
+                    detail_map[q] = {
+                        "id":           item["id"],
+                        "query":        q,
+                        "nombre":       p.get("producto_nombre", q),
+                        "imagen":       p.get("url_imagen"),
+                        "marca":        p.get("marca"),
+                        "categoria":    p.get("categoria"),
+                        "unidad_medida": p.get("unidad_medida"),
+                        "precio_base":  precio_unit,
+                        "precio_kilo":  float(precio_kg_v) if precio_kg_v else None,
+                        "unidad_norm":  unidad,
+                        "super_base":   s,
+                    }
 
-        with row_cols[-1]:
-            first_match = next((row_data[s] for s in supers if s in row_data), None)
-            if st.button("🔍", key=f"det_{item['id']}", help="Ver ficha del producto"):
-                st.session_state["detalle_producto"] = {
-                    "query":        q,
-                    "nombre":       first_match["producto_nombre"] if first_match else q,
-                    "imagen":       first_match.get("url_imagen") if first_match else None,
-                    "marca":        first_match.get("marca") if first_match else None,
-                    "categoria":    first_match.get("categoria") if first_match else None,
-                    "unidad_medida": first_match.get("unidad_medida") if first_match else None,
-                    "precio_base":  float(first_match["precio"]) if first_match else None,
-                    "precio_kilo":  float(first_match["precio_por_unidad_normalizado"])
-                                    if first_match and first_match.get("precio_por_unidad_normalizado")
-                                    else None,
-                    "unidad_norm":  first_match.get("unidad_normalizacion") if first_match else None,
-                    "super_base":   first_match["supermercado_nombre"] if first_match else "",
-                }
-                st.rerun()
-
-    st.divider()
-
-    # ── Fila de totales ────────────────────────────────────────────────────
-    total_cols = st.columns([3] + [2] * len(supers) + [1])
-    with total_cols[0]:
-        st.markdown('<div style="font-weight:800;font-size:.9rem;color:#1B4332">TOTAL</div>', unsafe_allow_html=True)
-    total_cols[-1].write("")
-
-    for i, s in enumerate(supers):
-        with total_cols[i + 1]:
-            if totals[s] > 0:
-                min_total = min(v for v in totals.values() if v > 0)
-                is_min    = abs(totals[s] - min_total) < 0.001
                 if is_min:
-                    st.markdown(
-                        f'<div style="font-weight:800;color:#52B788;font-size:.95rem;'
-                        f'background:#D8F3DC;border-radius:7px;padding:4px 8px">'
-                        f'{totals[s]:.2f} €</div>',
-                        unsafe_allow_html=True,
+                    price_cell = (
+                        f'<span style="font-weight:800;color:#1B4332;font-size:.92rem">'
+                        f'{precio_unit:.2f}&nbsp;€</span>'
+                        f'&nbsp;<span style="display:inline-block;padding:2px 6px;'
+                        f'border-radius:20px;background:#D8F3DC;color:#1B4332;'
+                        f'font-size:.65rem;font-weight:700;vertical-align:middle">MIN</span>'
                     )
                 else:
-                    st.markdown(
-                        f'<div style="font-weight:700;font-size:.9rem">{totals[s]:.2f} €</div>',
-                        unsafe_allow_html=True,
+                    price_cell = (
+                        f'<span style="color:#495057;font-size:.9rem">'
+                        f'{precio_unit:.2f}&nbsp;€</span>'
                     )
 
-    # ── Estadísticas por supermercado ──────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    section_header("📊 Cobertura por supermercado")
-    stat_cols = st.columns(min(len(supers), 4))
-    for i, s in enumerate(supers[:4]):
-        with stat_cols[i]:
-            n          = found[s]
-            total_i    = len(items)
-            pct_cob    = int(n / total_i * 100) if total_i else 0
-            fav_str    = " ⭐" if super_codigos.get(s, "") in favoritos else ""
-            st.metric(f"{s}{fav_str}", f"{n}/{total_i}", f"{pct_cob}%")
+                subtext = ""
+                if precio_kg_v:
+                    subtext = (
+                        f'<br><span style="color:#ADB5BD;font-size:.74rem">'
+                        f'{float(precio_kg_v):.2f}&nbsp;€/{unidad}</span>'
+                    )
+
+                data_rows += (
+                    f'<td style="{td_row};text-align:center">'
+                    f'{price_cell}{subtext}'
+                    f'</td>'
+                )
+            else:
+                data_rows += (
+                    f'<td style="{td_row};text-align:center;color:#DEE2E6;'
+                    f'font-size:.9rem">—</td>'
+                )
+
+        data_rows += "</tr>"
+
+    # Fila de totales
+    min_total = min((v for v in totals.values() if v > 0), default=None)
+    total_td  = td_base + ";font-weight:800;font-size:.9rem;border-top:2px solid #DEE2E6;background:#FAFAFA"
+    total_row = (
+        f'<tr><td style="{total_td}">TOTAL ESTIMADO</td>'
+    )
+    for s in supers:
+        if totals[s] > 0:
+            is_min = min_total is not None and abs(totals[s] - min_total) < 0.001
+            if is_min:
+                total_row += (
+                    f'<td style="{total_td};text-align:center">'
+                    f'<span style="color:#1B4332;background:#D8F3DC;border-radius:7px;'
+                    f'padding:4px 8px;display:inline-block">'
+                    f'{totals[s]:.2f}&nbsp;€</span></td>'
+                )
+            else:
+                total_row += (
+                    f'<td style="{total_td};text-align:center;color:#495057">'
+                    f'{totals[s]:.2f}&nbsp;€</td>'
+                )
+        else:
+            total_row += f'<td style="{total_td};text-align:center;color:#DEE2E6">—</td>'
+    total_row += "</tr>"
+
+    table_html = (
+        '<div style="overflow-x:auto;margin-top:4px">'
+        '<table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif">'
+        f'<thead><tr>{header_cells}</tr></thead>'
+        f'<tbody>{data_rows}</tbody>'
+        f'<tfoot>{total_row}</tfoot>'
+        '</table></div>'
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
+
+    # ── Botones de detalle (uno por producto con precio) ──────────────────────
+    productos_con_precio = [q for q in detail_map]
+    if productos_con_precio:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption("Ver ficha completa de un producto:")
+        det_cols = st.columns(min(len(productos_con_precio), 4))
+        for i, q in enumerate(productos_con_precio):
+            with det_cols[i % len(det_cols)]:
+                label = q[:22] + ("…" if len(q) > 22 else "")
+                if st.button(f"🔍 {label}", key=f"det_{detail_map[q]['id']}", use_container_width=True):
+                    d = detail_map[q]
+                    st.session_state["detalle_producto"] = {
+                        k: v for k, v in d.items() if k != "id"
+                    }
+                    st.rerun()
+
+    # ── Cobertura por supermercado ────────────────────────────────────────────
+    n_items = len(items)
+    if any(found[s] > 0 for s in supers):
+        st.markdown("<br>", unsafe_allow_html=True)
+        section_header("📊 Cobertura por supermercado")
+        n_cols = min(len(supers), 4)
+        stat_cols = st.columns(n_cols)
+        for i, s in enumerate(supers[:n_cols]):
+            pct_cob = int(found[s] / n_items * 100) if n_items else 0
+            fav_str = " ⭐" if super_codigos.get(s, "") in favoritos else ""
+            stat_cols[i].metric(f"{s[:14]}{fav_str}", f"{found[s]}/{n_items}", f"{pct_cob}%")
 
     if len(supers) == 0:
         st.caption("ℹ️ Pulsa «Consultar supermercados ahora» para obtener precios.")
