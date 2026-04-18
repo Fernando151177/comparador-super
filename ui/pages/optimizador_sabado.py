@@ -1,4 +1,4 @@
-"""Saturday optimizer page — modos habitual y oportunidad."""
+"""Saturday optimizer page — diseño premium Smart Shopping Iberia."""
 import json
 from datetime import date
 
@@ -9,14 +9,27 @@ from domain.models import Usuario
 from optimizer.saturday_optimizer import optimize_for_user
 from optimizer.savings_calculator import get_displacement_adjusted_savings
 from ordering.supermarket_links import get_info, build_search_url
+from ui.styles import (
+    page_header, section_header, empty_state,
+    savings_comparison_html, super_result_card, metric_cards
+)
+
+# Paleta de colores para supermercados (ciclo)
+_SUPER_PALETTE = [
+    "#52B788", "#2D6A4F", "#40916C", "#74C69D",
+    "#1B4332", "#95D5B2", "#B7E4C7", "#D8F3DC",
+]
 
 
 def mostrar(usuario: Usuario) -> None:
-    st.title("🗺️ Optimizador del sábado")
-    st.caption("Calculamos dónde comprar cada producto para gastar lo mínimo.")
+    page_header(
+        "Optimizador del sábado",
+        subtitle="Calcula dónde comprar cada producto para gastar lo mínimo.",
+        emoji="🗺️",
+    )
 
     favoritos = usuario.supermercados_favoritos
-    coste_km = usuario.coste_desplazamiento
+    coste_km  = usuario.coste_desplazamiento
 
     # ── Selector de modo ──────────────────────────────────────────────────────
     col_modo, col_pais = st.columns([3, 2])
@@ -43,7 +56,7 @@ def mostrar(usuario: Usuario) -> None:
 
     with col_pais:
         pais_options = {"🇪🇸 España": "ES", "🇵🇹 Portugal": "PT", "🌍 Ambos": "AMBOS"}
-        pais_label = st.radio(
+        pais_label   = st.radio(
             "Supermercados a considerar",
             list(pais_options.keys()),
             horizontal=True,
@@ -69,7 +82,7 @@ def mostrar(usuario: Usuario) -> None:
             st.rerun()
 
     if calcular:
-        with st.spinner("Calculando…"):
+        with st.spinner("Calculando el plan óptimo…"):
             result = optimize_for_user(
                 usuario.id,
                 pais=pais,
@@ -78,9 +91,9 @@ def mostrar(usuario: Usuario) -> None:
                 coste_desplazamiento=coste_km,
             )
         st.session_state["opt_result"] = result
-        st.session_state["opt_meta"] = {
+        st.session_state["opt_meta"]   = {
             "favoritos": favoritos,
-            "coste_km": coste_km,
+            "coste_km":  coste_km,
             "usuario_id": usuario.id,
         }
         st.session_state.pop("opt_registrado", None)
@@ -94,7 +107,11 @@ def mostrar(usuario: Usuario) -> None:
             st.session_state["opt_meta"]["usuario_id"],
         )
     else:
-        st.info("Pulsa el botón para calcular el plan de compra optimizado con los precios de hoy.")
+        empty_state(
+            "🗺️",
+            "Sin plan de compra aún",
+            "Pulsa <b>⚡ Calcular plan óptimo</b> para ver dónde comprar cada producto hoy.",
+        )
 
 
 # ── Render resultado ──────────────────────────────────────────────────────────
@@ -104,8 +121,8 @@ def _render_result(result, favoritos: list[str], coste_km: float, usuario_id: st
         st.warning("Tu lista está vacía. Añade productos en **📋 Mi lista**.")
         return
 
-    n_supers = len(result.por_supermercado)
-    n_extras = len(set(result.por_supermercado.keys()) - set(favoritos))
+    n_supers   = len(result.por_supermercado)
+    n_extras   = len(set(result.por_supermercado.keys()) - set(favoritos))
     coste_extra = round(n_extras * coste_km, 2)
 
     ahorro_neto = get_displacement_adjusted_savings(
@@ -115,21 +132,34 @@ def _render_result(result, favoritos: list[str], coste_km: float, usuario_id: st
         coste_desplazamiento=coste_km,
     )
 
-    # ── Métricas ──────────────────────────────────────────────────────────────
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total óptimo", f"{result.total_optimo:.2f} €")
-    col2.metric("Supermercados", n_supers)
-    col3.metric(
-        "Ahorro bruto",
-        f"{result.ahorro_total:.2f} €",
-        help="Diferencia vs. comprar todo en el supermercado más caro.",
-    )
-    col4.metric(
-        "Ahorro neto",
-        f"{ahorro_neto:.2f} €",
-        delta=f"-{coste_extra:.2f} € desplazamiento" if coste_extra > 0 else None,
-        delta_color="inverse" if coste_extra > 0 else "off",
-    )
+    # ── Métricas principales ──────────────────────────────────────────────────
+    metric_cards([
+        {
+            "icon": "🛍️",
+            "value": f"{result.total_optimo:.2f} €",
+            "label": "Total óptimo",
+            "color": "#1B4332",
+        },
+        {
+            "icon": "🏪",
+            "value": str(n_supers),
+            "label": "Supermercados",
+            "color": "#2D6A4F",
+        },
+        {
+            "icon": "💰",
+            "value": f"{result.ahorro_total:.2f} €",
+            "label": "Ahorro bruto",
+            "color": "#52B788",
+        },
+        {
+            "icon": "🎯",
+            "value": f"{ahorro_neto:.2f} €",
+            "label": "Ahorro neto",
+            "delta": f"-{coste_extra:.2f} € desplazamiento" if coste_extra > 0 else "",
+            "color": "#40916C" if ahorro_neto > 0 else "#E63946",
+        },
+    ])
 
     if coste_extra > 0 and ahorro_neto <= 0:
         st.warning(
@@ -138,42 +168,60 @@ def _render_result(result, favoritos: list[str], coste_km: float, usuario_id: st
             "Considera comprar todo en un único supermercado."
         )
 
+    # ── Banner de comparativa de ahorro ───────────────────────────────────────
     if result.total_si_uno:
-        st.markdown("---")
-        st.markdown("**¿Cuánto gastarías comprando TODO en un único supermercado?**")
-        cols = st.columns(len(result.total_si_uno))
-        for col, (codigo, total) in zip(cols, sorted(result.total_si_uno.items(), key=lambda x: x[1])):
-            info = get_info(codigo)
+        max_total = max(result.total_si_uno.values())
+        st.markdown(
+            savings_comparison_html(max_total, result.total_optimo, result.ahorro_total),
+            unsafe_allow_html=True,
+        )
+
+    # ── Total si compraras todo en uno ────────────────────────────────────────
+    if result.total_si_uno:
+        section_header("🏪 ¿Cuánto gastarías en un único supermercado?")
+        items_si_uno = sorted(result.total_si_uno.items(), key=lambda x: x[1])
+        cols = st.columns(len(items_si_uno))
+        for col, (codigo, total) in zip(cols, items_si_uno):
+            info   = get_info(codigo)
             nombre = info["nombre"] if info else codigo
             es_fav = "⭐ " if codigo in favoritos else ""
             col.metric(f"{es_fav}{nombre}", f"{total:.2f} €")
 
-    st.markdown("---")
+    # ── Plan por supermercado — tarjetas de ruta ───────────────────────────────
+    section_header("🛣️ Tu ruta de compra óptima", "Productos asignados al supermercado más barato")
 
-    # ── Plan por supermercado ─────────────────────────────────────────────────
-    for codigo, items in result.por_supermercado.items():
-        info = get_info(codigo)
-        nombre = info["nombre"] if info else codigo
+    for idx, (codigo, items) in enumerate(result.por_supermercado.items()):
+        info    = get_info(codigo)
+        nombre  = info["nombre"] if info else codigo
         subtotal = sum(i.precio_total for i in items)
-        es_fav = "⭐ " if codigo in favoritos else ""
-        es_extra = " *(desplazamiento extra)*" if codigo not in favoritos and favoritos else ""
+        es_fav  = codigo in favoritos
+        color   = _SUPER_PALETTE[idx % len(_SUPER_PALETTE)]
 
-        with st.expander(
-            f"🏪 {es_fav}**{nombre}**{es_extra} — {len(items)} productos — {subtotal:.2f} €",
-            expanded=True,
-        ):
+        # Cabecera de la tarjeta del supermercado
+        st.markdown(
+            super_result_card(nombre, len(items), subtotal, color, es_fav),
+            unsafe_allow_html=True,
+        )
+
+        es_extra = codigo not in favoritos and bool(favoritos)
+        extra_str = " *(visita extra)*" if es_extra else ""
+        with st.expander(f"Ver {len(items)} producto(s) en {nombre}{extra_str}", expanded=False):
             for item in items:
-                url = build_search_url(codigo, item.producto_nombre)
-                link = f" [(ver)]({url})" if url else ""
+                url   = build_search_url(codigo, item.producto_nombre)
+                link  = f" [(ver →)]({url})" if url else ""
                 pkilo = f" · {item.precio_kilo:.2f} €/kg" if item.precio_kilo else ""
                 c1, c2 = st.columns([5, 2])
                 with c1:
-                    st.write(
+                    st.markdown(
                         f"**{item.query_texto}** ×{item.cantidad}{link}  \n"
                         f"_{item.producto_nombre}_{pkilo}"
                     )
                 with c2:
-                    st.write(f"**{item.precio_total:.2f} €**")
+                    st.markdown(
+                        f'<div style="font-weight:800;font-size:1rem;color:#1B4332;text-align:right">'
+                        f'{item.precio_total:.2f} €</div>',
+                        unsafe_allow_html=True,
+                    )
                     if item.ahorro_vs_caro > 0:
                         st.caption(f"Ahorras {item.ahorro_vs_caro:.2f} €")
 
@@ -189,13 +237,11 @@ def _render_result(result, favoritos: list[str], coste_km: float, usuario_id: st
 
 
 def _render_registro(result, ahorro_neto: float, usuario_id: str) -> None:
-    """Sección para registrar la compra en el historial."""
-
     if st.session_state.get("opt_registrado"):
         st.success("✅ Compra registrada. El panel de ahorro ya refleja este gasto.")
         return
 
-    st.subheader("💾 Registrar esta compra")
+    section_header("💾 Registrar esta compra")
     st.caption(
         "Guarda esta sesión en tu historial para que el panel de ahorro "
         "acumule tus estadísticas reales."
@@ -205,7 +251,6 @@ def _render_registro(result, ahorro_neto: float, usuario_id: str) -> None:
         marcar_comprados = st.checkbox(
             "Marcar todos los productos como comprados en mi lista",
             value=True,
-            help="Los productos se moverán a la sección 'Comprados' de tu lista.",
         )
         confirmar = st.form_submit_button("✅ Registrar compra", type="primary")
 
@@ -216,13 +261,12 @@ def _render_registro(result, ahorro_neto: float, usuario_id: str) -> None:
 
 
 def _guardar_sesion(result, ahorro_neto: float, usuario_id: str, marcar_comprados: bool) -> None:
-    """Inserta una fila en sesiones_compra y opcionalmente marca items comprados."""
     supers_visitados = list(result.por_supermercado.keys())
     productos = [
         {
-            "nombre": item.query_texto,
-            "producto": item.producto_nombre,
-            "cantidad": item.cantidad,
+            "nombre":       item.query_texto,
+            "producto":     item.producto_nombre,
+            "cantidad":     item.cantidad,
             "precio_total": item.precio_total,
             "supermercado": item.supermercado_codigo,
         }
@@ -248,8 +292,7 @@ def _guardar_sesion(result, ahorro_neto: float, usuario_id: str, marcar_comprado
         )
 
         if marcar_comprados:
-            queries = [item.query_texto for item in result.plan]
-            for q in queries:
+            for q in [item.query_texto for item in result.plan]:
                 conn.execute(
                     "UPDATE lista_usuario SET comprado = TRUE "
                     "WHERE usuario_id = %s AND query_texto = %s AND comprado = FALSE",

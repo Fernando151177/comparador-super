@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import streamlit as st
 
 # ── Siembra los supermercados si todavía no están en Supabase ─────────────────
-# (Es seguro llamarla en cada arranque: ON CONFLICT DO NOTHING evita duplicados)
 from database.init_db import init_db
 init_db()
 
@@ -30,23 +29,38 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Inyectar estilos globales ─────────────────────────────────────────────────
+from ui.styles import inject_css
+inject_css()
+
 # ── Comprobación de sesión ────────────────────────────────────────────────────
 from auth.session import get_usuario_actual
 
 usuario = get_usuario_actual()
 
-# ── Sin sesión: mostrar login / registro ──────────────────────────────────────
+# ── Sin sesión: pantalla de login premium ─────────────────────────────────────
 if usuario is None:
     st.markdown(
-        "<h1 style='text-align:center;margin-top:2rem'>🛒 Smart Shopping Iberia</h1>"
-        "<p style='text-align:center;color:gray'>Compara precios en 15 supermercados de España y Portugal</p>",
+        """
+        <div style="text-align:center;padding:60px 24px 32px">
+          <div style="font-size:3rem;margin-bottom:12px">🛒</div>
+          <h1 style="font-size:2.2rem;font-weight:800;color:#1B4332;margin:0;letter-spacing:-.03em">
+              Smart Shopping Iberia
+          </h1>
+          <p style="color:#6C757D;font-size:1rem;margin:10px 0 4px;font-weight:400">
+              Compra inteligente. Ahorra de verdad.
+          </p>
+          <p style="color:#ADB5BD;font-size:.85rem;margin:0">
+              🇪🇸 8 supermercados &nbsp;·&nbsp; 🇵🇹 7 supermercados
+          </p>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
-    st.markdown("---")
 
     col_left, col_center, col_right = st.columns([1, 2, 1])
     with col_center:
-        tab_login, tab_register = st.tabs(["Iniciar sesión", "Crear cuenta"])
+        tab_login, tab_register = st.tabs(["  Iniciar sesión  ", "  Crear cuenta  "])
         with tab_login:
             from ui.pages.login import mostrar as login_page
             login_page()
@@ -59,12 +73,35 @@ if usuario is None:
 # ── Con sesión: app completa ──────────────────────────────────────────────────
 st.session_state["usuario"] = usuario
 
-# ── Barra lateral de navegación ───────────────────────────────────────────────
+# ── Barra lateral — diseño premium ───────────────────────────────────────────
 _PAIS_FLAG = {"ES": "🇪🇸", "PT": "🇵🇹", "AMBOS": "🌍"}
 flag = _PAIS_FLAG.get(usuario.pais_activo, "")
 
-st.sidebar.title(f"🛒 Smart Shopping {flag}")
-st.sidebar.caption(f"Hola, **{usuario.nombre}**")
+# Logotipo + avatar usuario
+inicial = (usuario.nombre or "?")[0].upper()
+st.sidebar.markdown(
+    f"""<div style="padding:8px 4px 12px">
+         <div style="font-size:1.15rem;font-weight:800;color:white;letter-spacing:-.02em">
+             🛒 Smart Shopping
+         </div>
+         <div style="font-size:.78rem;color:rgba(255,255,255,.6);margin-top:2px">
+             Compra inteligente. Ahorra de verdad.
+         </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;
+         background:rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;
+         margin-bottom:4px">
+      <div style="width:34px;height:34px;border-radius:50%;
+           background:linear-gradient(135deg,#52B788,#40916C);
+           display:flex;align-items:center;justify-content:center;
+           font-weight:800;color:white;font-size:.95rem;flex-shrink:0">{inicial}</div>
+      <div>
+        <div style="font-weight:700;color:white;font-size:.88rem">{usuario.nombre}</div>
+        <div style="font-size:.72rem;color:rgba(255,255,255,.6)">{flag} activo</div>
+      </div>
+    </div>""",
+    unsafe_allow_html=True,
+)
 st.sidebar.markdown("---")
 
 from utils.config import ADMIN_EMAIL as _ADMIN_EMAIL
@@ -108,9 +145,13 @@ if new_pais != usuario.pais_activo:
     st.session_state["usuario"] = usuario
 
 st.sidebar.markdown("---")
-st.sidebar.caption("🇪🇸 8 supermercados · 🇵🇹 7 supermercados")
+st.sidebar.markdown(
+    '<div style="font-size:.72rem;color:rgba(255,255,255,.5);text-align:center;padding:2px 0">'
+    '🇪🇸 8 supermercados &nbsp;·&nbsp; 🇵🇹 7 supermercados</div>',
+    unsafe_allow_html=True,
+)
+st.sidebar.markdown("")
 
-# Botón de cierre de sesión en la barra lateral
 if st.sidebar.button("🚪 Cerrar sesión"):
     from auth.session import cerrar_sesion
     token = st.session_state.get("token")
