@@ -1,4 +1,4 @@
-"""Shopping list page — diseño premium Smart Shopping Iberia."""
+"""Shopping list page — tabla única con lista + comparativa de precios."""
 import unicodedata
 from difflib import SequenceMatcher
 from typing import Optional
@@ -9,7 +9,7 @@ from database.connection import get_connection
 from database.repositories.precios_repo import PreciosRepo
 from domain.models import Usuario
 from utils.i18n import t
-from ui.styles import page_header, section_header, empty_state, badge_html
+from ui.styles import page_header, section_header, empty_state
 
 
 # ── Utilidades de matching ────────────────────────────────────────────────────
@@ -63,123 +63,262 @@ def mostrar(usuario: Usuario) -> None:
 
     prices = PreciosRepo().get_today(pais=usuario.pais_activo)
 
-    # ── Barra de cobertura de precios ─────────────────────────────────────────
+    # Barra de cobertura
     if prices:
         with_price = sum(1 for it in items if _best_match(it["query_texto"], prices))
-        total_items = len(items)
-        pct = with_price / total_items if total_items else 0
+        pct = with_price / len(items) if items else 0
         st.markdown(
-            f'<div style="display:flex;align-items:center;justify-content:space-between;'
-            f'margin-bottom:6px">'
-            f'  <span style="font-size:.85rem;font-weight:600;color:#1B4332">'
-            f'      📊 Cobertura de precios</span>'
-            f'  <span style="font-size:.85rem;color:#6C757D">'
-            f'      <b style="color:#52B788">{with_price}</b> de <b>{total_items}</b> productos</span>'
+            f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+            f'<span style="font-size:.85rem;font-weight:600;color:#1B4332">📊 Cobertura de precios</span>'
+            f'<span style="font-size:.85rem;color:#6C757D">'
+            f'<b style="color:#52B788">{with_price}</b> de <b>{len(items)}</b> productos</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
         st.progress(pct)
         st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Acceso rápido al optimizador ─────────────────────────────────────────
+    # Banner optimizador
     st.markdown(
         '<div style="background:linear-gradient(135deg,#1B4332,#2D6A4F);border-radius:12px;'
-        'padding:16px 22px;color:white;display:flex;align-items:center;'
-        'justify-content:space-between;margin-bottom:8px">'
-        '  <div>'
-        '    <div style="font-weight:700;font-size:.95rem">🗺️ Optimizador del sábado</div>'
-        '    <div style="font-size:.8rem;opacity:.8;margin-top:3px">'
-        '        Calculamos la ruta más barata con los precios de hoy</div>'
-        '  </div>'
-        '  <div style="font-size:.8rem;opacity:.7;white-space:nowrap;margin-left:16px">'
-        '      ← menú lateral</div>'
+        'padding:14px 20px;color:white;display:flex;align-items:center;'
+        'justify-content:space-between;margin-bottom:16px">'
+        '<div>'
+        '<div style="font-weight:700;font-size:.92rem">🗺️ Optimizador del sábado</div>'
+        '<div style="font-size:.78rem;opacity:.8;margin-top:2px">Calculamos la ruta más barata con los precios de hoy</div>'
+        '</div>'
+        '<div style="font-size:.78rem;opacity:.6;white-space:nowrap;margin-left:16px">← menú lateral</div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    hide_list = st.session_state.get("hide_list", False)
-
-    if hide_list:
-        _render_comparison(items, prices, usuario)
-    else:
-        col_list, col_cmp = st.columns([1, 2], gap="medium")
-        with col_list:
-            _render_list(usuario, items)
-        with col_cmp:
-            _render_comparison(items, prices, usuario)
+    _render_unified_table(items, prices, usuario)
 
 
-# ── Lista de la compra (columna izquierda) ────────────────────────────────────
+# ── Tabla única: lista + precios ──────────────────────────────────────────────
 
-def _render_list(usuario: Usuario, items: list[dict]) -> None:
-    section_header(f"📋 Lista ({len(items)} productos)")
+def _render_unified_table(items: list[dict], prices: list[dict], usuario: Optional[Usuario] = None) -> None:
+    favoritos = usuario.supermercados_favoritos if usuario else []
 
-    view_by_cat = st.session_state.get("view_by_cat", False)
+    # Supermercados disponibles
+    super_codigos: dict[str, str] = {}
+    super_coverage: dict[str, int] = {}
+    for p in prices:
+        s = p["supermercado_nombre"]
+        super_codigos[s] = p.get("supermercado_codigo", "")
+        super_coverage[s] = super_coverage.get(s, 0) + 1
 
-    if view_by_cat:
-        _render_list_by_category(usuario, items)
-    else:
-        for item in items:
-            _render_item_card(item)
+    supers_fav   = sorted([n for n, c in super_codigos.items() if c in favoritos])
+    supers_otros = sorted(
+        [n for n, c in super_codigos.items() if c not in favoritos],
+        key=lambda n: -super_coverage.get(n, 0),
+    )
+    supers = (supers_fav + supers_otros)[:6]
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("✅ Limpiar comprados", use_container_width=True):
+    # Deduplicar items por query_texto
+    seen: set[str] = set()
+    unique_items: list[dict] = []
+    for item in items:
+        q = item["query_texto"]
+        if q not in seen:
+            seen.add(q)
+            unique_items.append(item)
+
+    # Matriz de comparación
+    comparison: dict[str, dict] = {}
+    for item in unique_items:
+        q = item["query_texto"]
+        comparison[q] = {}
+        for s in supers:
+            pool  = [p for p in prices if p["supermercado_nombre"] == s]
+            match = _best_match(q, pool)
+            if match:
+                comparison[q][s] = match
+
+    # Ratios de columnas: [✓] [producto] [cant] [super...] [🗑]
+    n = len(supers)
+    ratios = [0.38, 2.6, 0.85] + [1.3] * n + [0.38]
+
+    section_header("🛒 Lista y comparativa de precios")
+
+    # ── Cabecera de tabla ─────────────────────────────────────────────────────
+    TH = "font-size:.7rem;font-weight:700;color:#6C757D;text-transform:uppercase;letter-spacing:.05em;padding-bottom:8px;border-bottom:2px solid #DEE2E6"
+    hcols = st.columns(ratios)
+    hcols[0].markdown(f'<div style="{TH};text-align:center">✓</div>', unsafe_allow_html=True)
+    hcols[1].markdown(f'<div style="{TH}">Producto</div>', unsafe_allow_html=True)
+    hcols[2].markdown(f'<div style="{TH};text-align:center">Cant.</div>', unsafe_allow_html=True)
+    for i, s in enumerate(supers):
+        fav = " ⭐" if super_codigos.get(s, "") in favoritos else ""
+        label = (s[:9] + "…") if len(s) > 9 else s
+        hcols[3 + i].markdown(f'<div style="{TH};text-align:center" title="{s}">{label}{fav}</div>', unsafe_allow_html=True)
+    hcols[-1].markdown(f'<div style="{TH}"></div>', unsafe_allow_html=True)
+
+    # ── Filas de productos ────────────────────────────────────────────────────
+    totals:     dict[str, float] = {s: 0.0 for s in supers}
+    found:      dict[str, int]   = {s: 0   for s in supers}
+    detail_map: dict[str, dict]  = {}
+
+    TD_NAME  = "padding-top:8px;font-weight:600;font-size:.88rem;line-height:1.3"
+    TD_PRICE = "padding-top:6px;text-align:center"
+    TD_DASH  = "padding-top:10px;text-align:center;color:#CED4DA;font-size:.88rem"
+
+    for item in unique_items:
+        q   = item["query_texto"]
+        qty = int(item["cantidad"])
+        row = comparison.get(q, {})
+
+        min_price = min(
+            (float(row[s]["precio"]) for s in supers if s in row),
+            default=None,
+        )
+
+        rcols = st.columns(ratios)
+
+        # ✅ Marcar comprado
+        with rcols[0]:
+            st.write("")
+            if st.button("✅", key=f"done_{item['id']}", help="Marcar como comprado"):
+                _mark_done(item["id"])
+                st.rerun()
+
+        # Nombre del producto
+        with rcols[1]:
+            label_q = (q[:34] + "…") if len(q) > 34 else q
+            st.markdown(f'<div style="{TD_NAME}">{label_q}</div>', unsafe_allow_html=True)
+
+        # Cantidad −/+
+        with rcols[2]:
+            qa, qb, qc = st.columns([1, 1.1, 1])
+            with qa:
+                if st.button("−", key=f"minus_{item['id']}") and qty > 1:
+                    _update_qty(item["id"], qty - 1)
+                    st.rerun()
+            with qb:
+                st.markdown(
+                    f'<div style="text-align:center;padding-top:8px;font-size:.85rem;font-weight:600">×{qty}</div>',
+                    unsafe_allow_html=True,
+                )
+            with qc:
+                if st.button("+", key=f"plus_{item['id']}"):
+                    _update_qty(item["id"], qty + 1)
+                    st.rerun()
+
+        # Precios por supermercado
+        for i, s in enumerate(supers):
+            with rcols[3 + i]:
+                if s not in row:
+                    st.markdown(f'<div style="{TD_DASH}">—</div>', unsafe_allow_html=True)
+                    continue
+
+                p           = row[s]
+                precio      = float(p["precio"])
+                precio_kg_v = p.get("precio_por_unidad_normalizado")
+                unidad      = p.get("unidad_normalizacion") or "kg"
+                totals[s]  += precio * qty
+                found[s]   += 1
+                is_min      = min_price is not None and abs(precio - min_price) < 0.001
+
+                if q not in detail_map:
+                    detail_map[q] = {
+                        "id":            item["id"],
+                        "query":         q,
+                        "nombre":        p.get("producto_nombre", q),
+                        "imagen":        p.get("url_imagen"),
+                        "marca":         p.get("marca"),
+                        "categoria":     p.get("categoria"),
+                        "unidad_medida": p.get("unidad_medida"),
+                        "precio_base":   precio,
+                        "precio_kilo":   float(precio_kg_v) if precio_kg_v else None,
+                        "unidad_norm":   unidad,
+                        "super_base":    s,
+                    }
+
+                if is_min:
+                    price_html = (
+                        f'<span style="font-weight:800;color:#1B4332">{precio:.2f}&nbsp;€</span>'
+                        f'&nbsp;<span style="display:inline-block;padding:1px 5px;border-radius:20px;'
+                        f'background:#D8F3DC;color:#1B4332;font-size:.6rem;font-weight:700">MIN</span>'
+                    )
+                else:
+                    price_html = f'<span style="color:#495057">{precio:.2f}&nbsp;€</span>'
+
+                subtext = ""
+                if precio_kg_v:
+                    subtext = f'<br><span style="color:#ADB5BD;font-size:.7rem">{float(precio_kg_v):.2f}&nbsp;€/{unidad}</span>'
+
+                st.markdown(f'<div style="{TD_PRICE}">{price_html}{subtext}</div>', unsafe_allow_html=True)
+
+        # 🗑 Eliminar
+        with rcols[-1]:
+            st.write("")
+            if st.button("🗑️", key=f"del_{item['id']}", help="Eliminar de la lista"):
+                _delete_item(item["id"])
+                st.rerun()
+
+        # Separador entre filas
+        st.markdown('<hr style="margin:2px 0;border:none;border-top:1px solid #F0F0F0">', unsafe_allow_html=True)
+
+    # ── Fila de totales ───────────────────────────────────────────────────────
+    if supers and any(totals[s] > 0 for s in supers):
+        min_total = min((v for v in totals.values() if v > 0), default=None)
+        tcols = st.columns(ratios)
+        tcols[1].markdown(
+            '<div style="padding-top:8px;font-weight:800;font-size:.85rem;color:#1B4332">TOTAL ESTIMADO</div>',
+            unsafe_allow_html=True,
+        )
+        for i, s in enumerate(supers):
+            with tcols[3 + i]:
+                if totals[s] > 0:
+                    is_min = min_total is not None and abs(totals[s] - min_total) < 0.001
+                    if is_min:
+                        val = (
+                            f'<span style="background:#D8F3DC;color:#1B4332;border-radius:6px;'
+                            f'padding:3px 8px;display:inline-block;font-weight:800">'
+                            f'{totals[s]:.2f}&nbsp;€</span>'
+                        )
+                    else:
+                        val = f'<span style="color:#495057;font-weight:700">{totals[s]:.2f}&nbsp;€</span>'
+                    st.markdown(f'<div style="padding-top:6px;text-align:center">{val}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div style="{TD_DASH}">—</div>', unsafe_allow_html=True)
+
+    # ── Limpiar comprados ─────────────────────────────────────────────────────
+    st.write("")
+    if st.button("✅ Limpiar comprados", use_container_width=False):
         _clear_done(usuario.id)
         st.rerun()
 
-
-def _render_item_card(item: dict) -> None:
-    """Renderiza un item de la lista como mini-card con botones."""
-    ca, cb, cc = st.columns([5, 1, 1])
-    with ca:
-        st.markdown(
-            f'<div style="padding:8px 12px;background:white;border-radius:9px;'
-            f'box-shadow:0 1px 6px rgba(0,0,0,.06);border:1px solid #F0F0F0;'
-            f'font-size:.9rem">'
-            f'  <b>{item["query_texto"]}</b>'
-            f'  <span style="color:#ADB5BD;margin-left:6px">×{item["cantidad"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    with cb:
-        if st.button("✅", key=f"done_{item['id']}", help="Marcar como comprado"):
-            _mark_done(item["id"])
-            st.rerun()
-    with cc:
-        if st.button("🗑️", key=f"del_{item['id']}", help="Eliminar"):
-            _delete_item(item["id"])
-            st.rerun()
-
-
-def _render_list_by_category(usuario: Usuario, items: list[dict]) -> None:
-    cats: dict[str, list[dict]] = {}
-    for item in items:
-        cat = _detect_category(item["query_texto"])
-        cats.setdefault(cat, []).append(item)
-
-    for cat_name, cat_items in sorted(cats.items()):
-        st.markdown(
-            f'<div style="font-weight:700;font-size:.82rem;color:#6C757D;'
-            f'text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px">'
-            f'{cat_name}</div>',
-            unsafe_allow_html=True,
-        )
-        for item in cat_items:
-            ca, cb = st.columns([6, 1])
-            with ca:
-                st.markdown(
-                    f'<div style="padding:7px 12px;background:white;border-radius:8px;'
-                    f'box-shadow:0 1px 5px rgba(0,0,0,.05);font-size:.88rem">'
-                    f'• {item["query_texto"]} <span style="color:#ADB5BD">×{item["cantidad"]}</span></div>',
-                    unsafe_allow_html=True,
-                )
-            with cb:
-                if st.button("🗑️", key=f"del_cat_{item['id']}"):
-                    _delete_item(item["id"])
+    # ── Botones de detalle ────────────────────────────────────────────────────
+    if detail_map:
+        st.write("")
+        st.caption("Ver ficha completa de un producto:")
+        det_cols = st.columns(min(len(detail_map), 4))
+        for i, q in enumerate(detail_map):
+            with det_cols[i % len(det_cols)]:
+                btn_label = (q[:22] + "…") if len(q) > 22 else q
+                if st.button(f"🔍 {btn_label}", key=f"det_{detail_map[q]['id']}", use_container_width=True):
+                    d = detail_map[q]
+                    st.session_state["detalle_producto"] = {k: v for k, v in d.items() if k != "id"}
                     st.rerun()
 
+    # ── Sin precios cargados aún ──────────────────────────────────────────────
+    if not supers:
+        st.info("ℹ️ Pulsa «Consultar supermercados ahora» para ver precios comparados.")
+
+    # ── Cobertura por supermercado ────────────────────────────────────────────
+    n_items = len(unique_items)
+    if supers and any(found[s] > 0 for s in supers):
+        st.write("")
+        section_header("📊 Cobertura por supermercado")
+        n_cols = min(len(supers), 4)
+        stat_cols = st.columns(n_cols)
+        for i, s in enumerate(supers[:n_cols]):
+            pct_cob = int(found[s] / n_items * 100) if n_items else 0
+            fav_str = " ⭐" if super_codigos.get(s, "") in favoritos else ""
+            stat_cols[i].metric(f"{s[:14]}{fav_str}", f"{found[s]}/{n_items}", f"{pct_cob}%")
+
+
+# ── Categoría de producto ─────────────────────────────────────────────────────
 
 def _detect_category(query: str) -> str:
     q = _norm(query)
@@ -201,250 +340,24 @@ def _detect_category(query: str) -> str:
     return "📦 Otros"
 
 
-# ── Comparativa de precios ────────────────────────────────────────────────────
-
-def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> None:
-    if not prices:
-        empty_state("💸", "Sin precios para hoy", t("no_prices_today"))
-        return
-
-    favoritos = usuario.supermercados_favoritos if usuario else []
-
-    # Supermercados activos: favoritos primero, luego el resto por cobertura
-    super_codigos: dict[str, str] = {}
-    super_coverage: dict[str, int] = {}
-    for p in prices:
-        s = p["supermercado_nombre"]
-        super_codigos[s] = p.get("supermercado_codigo", "")
-        super_coverage[s] = super_coverage.get(s, 0) + 1
-
-    supers_fav   = sorted([n for n, c in super_codigos.items() if c in favoritos])
-    supers_otros = sorted(
-        [n for n, c in super_codigos.items() if c not in favoritos],
-        key=lambda n: -super_coverage.get(n, 0),
-    )
-    # Limitar a 8 columnas para que la tabla quepa en pantalla
-    supers = (supers_fav + supers_otros)[:8]
-
-    # ── Construir matriz de comparación ──────────────────────────────────────
-    comparison: dict[str, dict] = {}
-    for item in items:
-        q = item["query_texto"]
-        comparison[q] = {}
-        for s in supers:
-            pool  = [p for p in prices if p["supermercado_nombre"] == s]
-            match = _best_match(q, pool)
-            if match:
-                comparison[q][s] = match
-
-    section_header("💸 Comparativa de precios")
-
-    # ── Tabla HTML ────────────────────────────────────────────────────────────
-    th_style = (
-        "padding:10px 12px;font-size:.75rem;font-weight:700;color:#6C757D;"
-        "text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #DEE2E6;"
-        "white-space:nowrap;background:#FAFAFA"
-    )
-    td_base = (
-        "padding:10px 12px;vertical-align:top;border-bottom:1px solid #F0F0F0;"
-        "font-size:.88rem"
-    )
-
-    # Cabecera
-    header_cells = f'<th style="{th_style};text-align:left">Producto</th>'
-    for s in supers:
-        fav_mark = " ⭐" if super_codigos.get(s, "") in favoritos else ""
-        # Abreviar nombres largos de supermercados
-        label = s[:12] + ("…" if len(s) > 12 else "")
-        header_cells += (
-            f'<th style="{th_style};text-align:center" title="{s}">'
-            f'{label}{fav_mark}</th>'
-        )
-
-    totals: dict[str, float] = {s: 0.0 for s in supers}
-    found:  dict[str, int]   = {s: 0   for s in supers}
-    detail_map: dict[str, dict] = {}  # para los botones 🔍 de abajo
-
-    # Filas de productos
-    data_rows = ""
-    for idx, item in enumerate(items):
-        q   = item["query_texto"]
-        qty = int(item["cantidad"])
-        row = comparison.get(q, {})
-
-        min_price = min(
-            (float(row[s]["precio"]) for s in supers if s in row),
-            default=None,
-        )
-
-        # Primera celda: nombre + cantidad
-        bg_row = "#FAFAFA" if idx % 2 == 0 else "white"
-        td_row = td_base + f";background:{bg_row}"
-        data_rows += (
-            f'<tr>'
-            f'<td style="{td_row};font-weight:600;min-width:140px">'
-            f'{q}'
-            f'<span style="color:#ADB5BD;font-size:.8rem;margin-left:6px">×{qty}</span>'
-            f'</td>'
-        )
-
-        first_match = None
-        for s in supers:
-            if s in row:
-                p            = row[s]
-                precio_unit  = float(p["precio"])
-                precio_kg_v  = p.get("precio_por_unidad_normalizado")
-                unidad       = p.get("unidad_normalizacion") or "kg"
-                totals[s]   += precio_unit * qty
-                found[s]    += 1
-                is_min       = min_price is not None and abs(precio_unit - min_price) < 0.001
-
-                if first_match is None:
-                    first_match = p
-                    detail_map[q] = {
-                        "id":           item["id"],
-                        "query":        q,
-                        "nombre":       p.get("producto_nombre", q),
-                        "imagen":       p.get("url_imagen"),
-                        "marca":        p.get("marca"),
-                        "categoria":    p.get("categoria"),
-                        "unidad_medida": p.get("unidad_medida"),
-                        "precio_base":  precio_unit,
-                        "precio_kilo":  float(precio_kg_v) if precio_kg_v else None,
-                        "unidad_norm":  unidad,
-                        "super_base":   s,
-                    }
-
-                if is_min:
-                    price_cell = (
-                        f'<span style="font-weight:800;color:#1B4332;font-size:.92rem">'
-                        f'{precio_unit:.2f}&nbsp;€</span>'
-                        f'&nbsp;<span style="display:inline-block;padding:2px 6px;'
-                        f'border-radius:20px;background:#D8F3DC;color:#1B4332;'
-                        f'font-size:.65rem;font-weight:700;vertical-align:middle">MIN</span>'
-                    )
-                else:
-                    price_cell = (
-                        f'<span style="color:#495057;font-size:.9rem">'
-                        f'{precio_unit:.2f}&nbsp;€</span>'
-                    )
-
-                subtext = ""
-                if precio_kg_v:
-                    subtext = (
-                        f'<br><span style="color:#ADB5BD;font-size:.74rem">'
-                        f'{float(precio_kg_v):.2f}&nbsp;€/{unidad}</span>'
-                    )
-
-                data_rows += (
-                    f'<td style="{td_row};text-align:center">'
-                    f'{price_cell}{subtext}'
-                    f'</td>'
-                )
-            else:
-                data_rows += (
-                    f'<td style="{td_row};text-align:center;color:#DEE2E6;'
-                    f'font-size:.9rem">—</td>'
-                )
-
-        data_rows += "</tr>"
-
-    # Fila de totales
-    min_total = min((v for v in totals.values() if v > 0), default=None)
-    total_td  = td_base + ";font-weight:800;font-size:.9rem;border-top:2px solid #DEE2E6;background:#FAFAFA"
-    total_row = (
-        f'<tr><td style="{total_td}">TOTAL ESTIMADO</td>'
-    )
-    for s in supers:
-        if totals[s] > 0:
-            is_min = min_total is not None and abs(totals[s] - min_total) < 0.001
-            if is_min:
-                total_row += (
-                    f'<td style="{total_td};text-align:center">'
-                    f'<span style="color:#1B4332;background:#D8F3DC;border-radius:7px;'
-                    f'padding:4px 8px;display:inline-block">'
-                    f'{totals[s]:.2f}&nbsp;€</span></td>'
-                )
-            else:
-                total_row += (
-                    f'<td style="{total_td};text-align:center;color:#495057">'
-                    f'{totals[s]:.2f}&nbsp;€</td>'
-                )
-        else:
-            total_row += f'<td style="{total_td};text-align:center;color:#DEE2E6">—</td>'
-    total_row += "</tr>"
-
-    table_html = (
-        '<div style="overflow-x:auto;margin-top:4px">'
-        '<table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif">'
-        f'<thead><tr>{header_cells}</tr></thead>'
-        f'<tbody>{data_rows}</tbody>'
-        f'<tfoot>{total_row}</tfoot>'
-        '</table></div>'
-    )
-    st.markdown(table_html, unsafe_allow_html=True)
-
-    # ── Botones de detalle (uno por producto con precio) ──────────────────────
-    productos_con_precio = [q for q in detail_map]
-    if productos_con_precio:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.caption("Ver ficha completa de un producto:")
-        det_cols = st.columns(min(len(productos_con_precio), 4))
-        for i, q in enumerate(productos_con_precio):
-            with det_cols[i % len(det_cols)]:
-                label = q[:22] + ("…" if len(q) > 22 else "")
-                if st.button(f"🔍 {label}", key=f"det_{detail_map[q]['id']}", use_container_width=True):
-                    d = detail_map[q]
-                    st.session_state["detalle_producto"] = {
-                        k: v for k, v in d.items() if k != "id"
-                    }
-                    st.rerun()
-
-    # ── Cobertura por supermercado ────────────────────────────────────────────
-    n_items = len(items)
-    if any(found[s] > 0 for s in supers):
-        st.markdown("<br>", unsafe_allow_html=True)
-        section_header("📊 Cobertura por supermercado")
-        n_cols = min(len(supers), 4)
-        stat_cols = st.columns(n_cols)
-        for i, s in enumerate(supers[:n_cols]):
-            pct_cob = int(found[s] / n_items * 100) if n_items else 0
-            fav_str = " ⭐" if super_codigos.get(s, "") in favoritos else ""
-            stat_cols[i].metric(f"{s[:14]}{fav_str}", f"{found[s]}/{n_items}", f"{pct_cob}%")
-
-    if len(supers) == 0:
-        st.caption("ℹ️ Pulsa «Consultar supermercados ahora» para obtener precios.")
-
-
 # ── Menú de opciones ──────────────────────────────────────────────────────────
 
 def _opciones_menu(usuario: Usuario) -> None:
     with st.expander("⚙️ Opciones de lista"):
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
 
         with c1:
-            hide_list = st.session_state.get("hide_list", False)
-            label = "👁 Mostrar lista" if hide_list else "🙈 Ocultar lista"
-            if st.button(label, use_container_width=True):
-                st.session_state["hide_list"] = not hide_list
-                st.rerun()
-
-        with c2:
-            by_cat    = st.session_state.get("view_by_cat", False)
-            cat_label = "📋 Vista normal" if by_cat else "🗂 Por categoría"
-            if st.button(cat_label, use_container_width=True):
-                st.session_state["view_by_cat"] = not by_cat
-                st.rerun()
-
-        with c3:
             if st.button("🖨 Imprimir lista", use_container_width=True):
                 st.session_state["show_print"] = True
                 st.rerun()
 
-        with c4:
+        with c2:
             if st.button("🗑️ Vaciar carrito", use_container_width=True, type="secondary"):
                 st.session_state["confirm_clear"] = True
                 st.rerun()
+
+        with c3:
+            st.write("")  # espacio
 
         if st.session_state.get("confirm_clear"):
             st.warning("¿Seguro que quieres eliminar TODOS los productos de la lista?")
@@ -621,6 +534,14 @@ def _insert_item(usuario_id: str, query: str, cantidad: int) -> None:
         conn.execute(
             "INSERT INTO lista_usuario (usuario_id, query_texto, cantidad) VALUES (%s, %s, %s)",
             (usuario_id, query, cantidad),
+        )
+
+
+def _update_qty(item_id: int, cantidad: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE lista_usuario SET cantidad = %s WHERE id = %s",
+            (max(1, cantidad), item_id),
         )
 
 

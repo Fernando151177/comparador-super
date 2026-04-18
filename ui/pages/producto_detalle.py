@@ -249,7 +249,6 @@ def mostrar(usuario: Usuario) -> None:
     st.divider()
 
     # ── HISTORICO DE PRECIOS ──────────────────────────────────────────────────
-    st.subheader("📈 Historico de precios (30 dias)")
     _render_price_history(query, matches, usuario.pais_activo)
 
     st.divider()
@@ -277,45 +276,123 @@ def mostrar(usuario: Usuario) -> None:
 # ── Historico ─────────────────────────────────────────────────────────────────
 
 def _render_price_history(query: str, matches: dict, pais: str) -> None:
-    """Muestra un line chart con el historial de precios de los ultimos 30 dias."""
+    """Gráfica de evolución 30 días + estadísticas máx/mín/medio + indicador vs media."""
+    import pandas as pd
+    import plotly.graph_objects as go
+
+    st.subheader("📈 Histórico de precios — últimos 30 días")
+
     if not matches:
-        st.info("Sin datos historicos disponibles.")
+        st.info("Sin datos históricos disponibles.")
         return
 
-    # Recopilar producto_ids de los matches de hoy
-    producto_ids = []
-    for m in matches.values():
-        pid = m.get("producto_id")
-        if pid and pid not in producto_ids:
-            producto_ids.append(pid)
-
+    producto_ids = [
+        m["producto_id"] for m in matches.values()
+        if m.get("producto_id")
+    ]
     if not producto_ids:
-        st.info("Sin datos historicos disponibles.")
+        st.info("Sin datos históricos disponibles.")
         return
 
-    # Cargar historico de los ultimos 30 dias
     desde = str(date.today() - timedelta(days=30))
-    hist = _load_history(producto_ids, desde)
+    hist  = _load_history(producto_ids, desde)
 
     if not hist:
-        st.info("Solo hay datos de hoy. El historico se construira con el tiempo.")
+        st.info("Solo hay datos de hoy. El histórico se construirá con el tiempo.")
         return
 
-    # Pivot para el chart: fecha → {supermercado: precio}
-    try:
-        import pandas as pd
-        df = pd.DataFrame(hist)
-        df["fecha"] = pd.to_datetime(df["fecha"])
-        df["precio"] = df["precio"].astype(float)
-        pivot = df.pivot_table(
-            index="fecha",
-            columns="supermercado_nombre",
-            values="precio",
-            aggfunc="min",
+    df = pd.DataFrame(hist)
+    df["fecha"]  = pd.to_datetime(df["fecha"])
+    df["precio"] = df["precio"].astype(float)
+
+    # ── Estadísticas globales (todos los superms) ─────────────────────────────
+    precio_min_hist  = df["precio"].min()
+    precio_max_hist  = df["precio"].max()
+    precio_medio     = df["precio"].mean()
+
+    # Precio actual = mínimo de hoy entre todos los superms con match
+    precio_hoy = min(float(m["precio"]) for m in matches.values()) if matches else None
+
+    # Indicador vs media
+    if precio_hoy is not None and precio_medio > 0:
+        diff_pct = (precio_hoy - precio_medio) / precio_medio * 100
+        if diff_pct < 0:
+            indicador = f"🟢 Ahora está **{abs(diff_pct):.1f}% más barato** que su precio medio"
+            ind_color = "#1B4332"
+        elif diff_pct > 5:
+            indicador = f"🔴 Ahora está **{diff_pct:.1f}% más caro** que su precio medio"
+            ind_color = "#E63946"
+        else:
+            indicador = f"🟡 Ahora está en su **precio medio habitual**"
+            ind_color = "#6C757D"
+    else:
+        indicador  = None
+        ind_color  = "#6C757D"
+
+    # ── Métricas ──────────────────────────────────────────────────────────────
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("Precio mínimo (30d)", f"{precio_min_hist:.2f} €")
+    mc2.metric("Precio máximo (30d)", f"{precio_max_hist:.2f} €")
+    mc3.metric("Precio medio (30d)",  f"{precio_medio:.2f} €")
+    if precio_hoy is not None:
+        delta_str = f"{diff_pct:+.1f}% vs media"
+        mc4.metric("Precio mínimo hoy", f"{precio_hoy:.2f} €", delta=delta_str,
+                   delta_color="inverse")
+
+    if indicador:
+        st.markdown(
+            f'<div style="margin:8px 0 16px;padding:10px 16px;border-radius:8px;'
+            f'background:#F8F9FA;border-left:4px solid {ind_color};font-size:.9rem">'
+            f'{indicador}</div>',
+            unsafe_allow_html=True,
         )
-        st.line_chart(pivot, use_container_width=True)
-    except Exception:
-        st.info("No hay suficientes datos para mostrar el historico.")
+
+    # ── Gráfica Plotly ────────────────────────────────────────────────────────
+    COLORS = ["#1f77b4","#2ca02c","#d62728","#ff7f0e","#9467bd","#8c564b","#e377c2","#17becf"]
+
+    fig = go.Figure()
+    supers_en_hist = sorted(df["supermercado_nombre"].unique())
+
+    for i, s in enumerate(supers_en_hist):
+        dfs = df[df["supermercado_nombre"] == s].sort_values("fecha")
+        # precio mínimo por día si hay varios registros
+        dfs = dfs.groupby("fecha")["precio"].min().reset_index()
+        fig.add_trace(go.Scatter(
+            x=dfs["fecha"],
+            y=dfs["precio"],
+            mode="lines+markers",
+            name=s,
+            line=dict(color=COLORS[i % len(COLORS)], width=2),
+            marker=dict(size=5),
+            hovertemplate=f"<b>{s}</b><br>%{{x|%d/%m/%Y}}<br>%{{y:.2f}} €<extra></extra>",
+        ))
+
+    # Línea de precio medio
+    fig.add_hline(
+        y=precio_medio,
+        line_dash="dot",
+        line_color="#ADB5BD",
+        annotation_text=f"Media: {precio_medio:.2f} €",
+        annotation_position="bottom right",
+        annotation_font_size=11,
+        annotation_font_color="#6C757D",
+    )
+
+    fig.update_layout(
+        height=300,
+        margin=dict(l=0, r=0, t=10, b=0),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        yaxis=dict(
+            title="Precio (€)",
+            gridcolor="#F0F0F0",
+            tickformat=".2f",
+        ),
+        xaxis=dict(gridcolor="#F0F0F0"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _load_history(producto_ids: list[int], desde: str) -> list[dict]:

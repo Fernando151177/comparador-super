@@ -149,6 +149,13 @@ class PlaywrightBaseScraper(BaseScraper):
         except Exception:
             return
 
+        # Wait for product selector if defined
+        if self._WAIT_SELECTOR:
+            try:
+                await page.wait_for_selector(self._WAIT_SELECTOR, timeout=8_000)
+            except Exception:
+                pass
+
         # Site-specific button first
         for sel in filter(None, [
             self._COOKIE_SELECTOR,

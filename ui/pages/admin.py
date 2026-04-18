@@ -231,6 +231,7 @@ def _evolucion_precios() -> None:
 
 def _tabla_usuarios() -> None:
     from database.connection import get_connection
+    from database.repositories.usuarios_repo import UsuariosRepo
 
     section_header("👥 Usuarios registrados")
 
@@ -238,20 +239,23 @@ def _tabla_usuarios() -> None:
         rows = conn.execute(
             """
             SELECT
+                u.id,
                 u.nombre,
                 u.email,
-                u.pais_activo                    AS pais,
-                u.email_verificado               AS verificado,
-                u.notificaciones_email           AS emails,
-                COUNT(l.id)                      AS items_lista,
+                u.pais_activo                        AS pais,
+                u.activo,
+                u.email_verificado                   AS verificado,
+                (cu.valor = 'true')                  AS emails,
+                COUNT(l.id)                          AS items_lista,
                 COUNT(CASE WHEN a.activa THEN 1 END) AS alertas,
                 u.created_at
             FROM usuarios u
-            LEFT JOIN lista_usuario   l ON l.usuario_id = u.id AND l.comprado = FALSE
-            LEFT JOIN alertas         a ON a.usuario_id = u.id
-            WHERE u.activo = TRUE
+            LEFT JOIN configuracion_usuario cu
+                ON cu.usuario_id = u.id AND cu.clave = 'notificaciones_email'
+            LEFT JOIN lista_usuario l ON l.usuario_id = u.id AND l.comprado = FALSE
+            LEFT JOIN alertas       a ON a.usuario_id = u.id
             GROUP BY u.id, u.nombre, u.email, u.pais_activo,
-                     u.email_verificado, u.notificaciones_email, u.created_at
+                     u.activo, u.email_verificado, cu.valor, u.created_at
             ORDER BY u.created_at DESC
             """
         ).fetchall()
@@ -260,26 +264,48 @@ def _tabla_usuarios() -> None:
         st.info("Sin usuarios registrados.")
         return
 
-    df = pd.DataFrame([dict(r) for r in rows])
-    df["verificado"] = df["verificado"].apply(lambda v: "✅" if v else "⚠️")
-    df["emails"] = df["emails"].apply(lambda v: "✅" if v else "—")
-    if "created_at" in df.columns:
-        df["created_at"] = pd.to_datetime(df["created_at"]).dt.strftime("%d/%m/%Y")
+    repo = UsuariosRepo()
 
-    st.dataframe(
-        df.rename(columns={
-            "nombre":      "Nombre",
-            "email":       "Email",
-            "pais":        "País",
-            "verificado":  "Email OK",
-            "emails":      "Notif.",
-            "items_lista": "Items lista",
-            "alertas":     "Alertas",
-            "created_at":  "Registro",
-        }),
-        use_container_width=True,
-        hide_index=True,
-    )
+    # Cabecera
+    TH = "font-size:.72rem;font-weight:700;color:#6C757D;text-transform:uppercase;padding-bottom:6px;border-bottom:2px solid #DEE2E6"
+    hcols = st.columns([2, 2.5, 0.6, 0.7, 0.7, 0.7, 0.7, 1.2])
+    for label, col in zip(["Nombre", "Email", "País", "Activo", "Email OK", "Notif.", "Lista", "Registro"], hcols):
+        col.markdown(f'<div style="{TH}">{label}</div>', unsafe_allow_html=True)
+
+    TD = "padding-top:6px;font-size:.85rem"
+
+    for r in rows:
+        uid       = str(r["id"])
+        activo    = bool(r["activo"])
+        verificado = bool(r["verificado"])
+        emails    = bool(r["emails"])
+        reg_date  = ""
+        if r["created_at"]:
+            try:
+                from datetime import datetime
+                reg_date = datetime.fromisoformat(str(r["created_at"])).strftime("%d/%m/%Y")
+            except Exception:
+                reg_date = str(r["created_at"])[:10]
+
+        rcols = st.columns([2, 2.5, 0.6, 0.7, 0.7, 0.7, 0.7, 1.2])
+        rcols[0].markdown(f'<div style="{TD};font-weight:600">{r["nombre"] or "—"}</div>', unsafe_allow_html=True)
+        rcols[1].markdown(f'<div style="{TD};color:#6C757D">{r["email"]}</div>', unsafe_allow_html=True)
+        rcols[2].markdown(f'<div style="{TD};text-align:center">{r["pais"] or "—"}</div>', unsafe_allow_html=True)
+
+        # Botón activar/desactivar
+        with rcols[3]:
+            btn_label = "✅" if activo else "🔴"
+            btn_help  = "Desactivar usuario" if activo else "Activar usuario"
+            if st.button(btn_label, key=f"toggle_{uid}", help=btn_help):
+                repo.set_activo(uid, not activo)
+                st.rerun()
+
+        rcols[4].markdown(f'<div style="{TD};text-align:center">{"✅" if verificado else "⚠️"}</div>', unsafe_allow_html=True)
+        rcols[5].markdown(f'<div style="{TD};text-align:center">{"✅" if emails else "—"}</div>', unsafe_allow_html=True)
+        rcols[6].markdown(f'<div style="{TD};text-align:center">{r["items_lista"]}</div>', unsafe_allow_html=True)
+        rcols[7].markdown(f'<div style="{TD};color:#ADB5BD">{reg_date}</div>', unsafe_allow_html=True)
+
+        st.markdown('<hr style="margin:2px 0;border:none;border-top:1px solid #F0F0F0">', unsafe_allow_html=True)
 
 
 # ── Top queries ───────────────────────────────────────────────────────────────

@@ -1,6 +1,5 @@
 """Página de registro de nuevos usuarios."""
 import streamlit as st
-import streamlit.components.v1 as components
 
 from auth.register import registrar_usuario, RegistrationError
 from auth.session import guardar_sesion
@@ -82,7 +81,7 @@ def mostrar() -> None:
 
     # Botón de geolocalización — fuera del form
     st.caption("¿No sabes tu código postal?")
-    components.html(
+    st.html(
         """
         <script>
         function detectarUbicacion() {
@@ -116,8 +115,7 @@ def mostrar() -> None:
                        cursor:pointer;background:#fafafa;font-size:13px;color:#333">
             📍 Detectar automáticamente
         </button>
-        """,
-        height=42,
+        """
     )
 
     if submit:

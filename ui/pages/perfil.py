@@ -1,6 +1,5 @@
 """User profile and preferences page — diseño premium."""
 import streamlit as st
-import streamlit.components.v1 as components
 
 from auth.session import cerrar_sesion
 from database.repositories.usuarios_repo import UsuariosRepo
@@ -34,7 +33,7 @@ def _reverse_geocode(lat: str, lon: str) -> tuple[str, str]:
 
 
 def _geo_button() -> None:
-    components.html(
+    st.html(
         """
         <script>
         function detectarUbicacion() {
@@ -67,8 +66,7 @@ def _geo_button() -> None:
                        font-weight:600">
             📍 Detectar automáticamente
         </button>
-        """,
-        height=44,
+        """
     )
 
 

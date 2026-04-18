@@ -185,7 +185,7 @@ def _get_price_drops_today(usuario_id: str) -> list[dict]:
                 (best["producto_id"], best["supermercado_id"], hoy),
             ).fetchall()
 
-        if len(hist) < 3:
+        if len(hist) < 2:
             continue
 
         precios_hist = sorted(float(r["precio"]) for r in hist)

@@ -183,7 +183,7 @@ def _detect_and_save_alerts() -> int:
                     """,
                     (best["producto_id"], best["supermercado_id"], hoy),
                 ).fetchall()
-            if len(hist) < 3:
+            if len(hist) < 2:
                 mediana_cache[key] = None
             else:
                 ps = sorted(float(r["precio"]) for r in hist)
@@ -313,7 +313,7 @@ def _send_price_drop_emails() -> int:
                            ORDER BY fecha_scraping DESC LIMIT 30""",
                         (best["producto_id"], best["supermercado_id"], hoy),
                     ).fetchall()
-                if len(hist) < 3:
+                if len(hist) < 2:
                     mediana_cache[key] = None
                 else:
                     ps = sorted(float(r["precio"]) for r in hist)
@@ -517,65 +517,112 @@ def _send_weekly_summary() -> int:
     return enviados
 
 
-# ── Orquestación principal ────────────────────────────────────────────────────
+# ── Tareas orquestadas (una por franja horaria) ───────────────────────────────
 
-def run_all_scrapers() -> None:
-    """Ejecuta todos los scrapers activos (ES + PT), guarda precios y genera alertas."""
+def run_scrapers_task() -> None:
+    """06:00 — Ejecuta todos los scrapers y guarda precios."""
     from database.init_db import init_db
     from database.repositories.productos_repo import ProductosRepo
     from database.repositories.precios_repo import PreciosRepo
     from scrapers import ALL_SCRAPERS
 
     init_db()
-
     queries = _load_all_queries()
-
     productos_repo = ProductosRepo()
-    precios_repo = PreciosRepo()
+    precios_repo   = PreciosRepo()
 
     start = datetime.now()
     log.info("=" * 55)
-    log.info(f"Scraping iniciado: {start:%Y-%m-%d %H:%M:%S}")
+    log.info(f"[06:00] Scraping iniciado: {start:%Y-%m-%d %H:%M:%S}")
     log.info(f"Scrapers: {len(ALL_SCRAPERS)}  |  Queries: {len(queries)}")
     log.info("=" * 55)
 
-    total_precios = 0
+    total = 0
     for cls in ALL_SCRAPERS:
-        guardados = _run_one_scraper(cls, queries, productos_repo, precios_repo)
-        total_precios += guardados
-
-    log.info(f"Detección de bajadas de precio…")
-    try:
-        n_alertas = _detect_and_save_alerts()
-        log.info(f"{n_alertas} alertas nuevas generadas.")
-    except Exception as exc:
-        log.error(f"Error en detección de alertas: {exc}")
-
-    log.info("Enviando notificaciones por email…")
-    try:
-        n_emails = _send_price_drop_emails()
-        log.info(f"{n_emails} email(s) enviados.")
-    except Exception as exc:
-        log.error(f"Error en notificaciones email: {exc}")
+        total += _run_one_scraper(cls, queries, productos_repo, precios_repo)
 
     elapsed = (datetime.now() - start).seconds
-    log.info("=" * 55)
-    log.info(f"Precios guardados : {total_precios}")
-    log.info(f"Duración          : {elapsed}s")
-    log.info("=" * 55)
+    log.info(f"[06:00] Precios guardados: {total}  |  Duración: {elapsed}s")
+
+
+def run_detect_alerts_task() -> None:
+    """06:30 — Detecta bajadas de precio >15% y crea alertas en BD."""
+    log.info("[06:30] Detectando bajadas de precio…")
+    try:
+        n = _detect_and_save_alerts()
+        log.info(f"[06:30] {n} alerta(s) nueva(s) generadas.")
+    except Exception as exc:
+        log.error(f"[06:30] Error en detección de alertas: {exc}")
+
+
+def run_send_alerts_task() -> None:
+    """07:00 — Envía emails de alerta de bajada de precio a usuarios."""
+    log.info("[07:00] Enviando emails de alertas de precio…")
+    try:
+        n = _send_price_drop_emails()
+        log.info(f"[07:00] {n} email(s) de alerta enviados.")
+    except Exception as exc:
+        log.error(f"[07:00] Error enviando emails de alerta: {exc}")
 
 
 def run_weekly_summary() -> None:
-    """Envía el resumen semanal de Smart Shopping a todos los usuarios."""
-    log.info("Enviando resumen semanal…")
+    """Miércoles 08:00 — Envía el resumen semanal a todos los usuarios."""
+    log.info("[08:00 mié] Enviando resumen semanal…")
     try:
         n = _send_weekly_summary()
-        log.info(f"Resumen semanal enviado a {n} usuario(s).")
+        log.info(f"[08:00 mié] Resumen semanal enviado a {n} usuario(s).")
     except Exception as exc:
-        log.error(f"Error en resumen semanal: {exc}")
+        log.error(f"[08:00 mié] Error en resumen semanal: {exc}")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# Alias para compatibilidad con código existente (botón manual en admin)
+def run_all_scrapers() -> None:
+    run_scrapers_task()
+    run_detect_alerts_task()
+    run_send_alerts_task()
+
+
+# ── Daemon para arranque automático desde app.py ──────────────────────────────
+
+import threading as _threading
+
+_daemon_thread: _threading.Thread | None = None
+
+
+def start_daemon() -> None:
+    """Arranca el scheduler en un hilo daemon. Llámalo una sola vez al inicio de app.py.
+
+    Horario:
+        06:00  →  scrapers
+        06:30  →  detectar bajadas
+        07:00  →  enviar emails de alerta
+        mié 08:00 → resumen semanal
+    """
+    global _daemon_thread
+    if _daemon_thread is not None and _daemon_thread.is_alive():
+        return  # ya está corriendo
+
+    import schedule as _schedule
+
+    _schedule.clear()
+    _schedule.every().day.at("06:00").do(run_scrapers_task)
+    _schedule.every().day.at("06:30").do(run_detect_alerts_task)
+    _schedule.every().day.at("07:00").do(run_send_alerts_task)
+    _schedule.every().wednesday.at("08:00").do(run_weekly_summary)
+
+    def _loop() -> None:
+        log.info("Scheduler daemon iniciado. Proximas ejecuciones programadas:")
+        log.info("  06:00 scrapers | 06:30 alertas | 07:00 emails | mie 08:00 resumen")
+        while True:
+            _schedule.run_pending()
+            time.sleep(30)
+
+    _daemon_thread = _threading.Thread(target=_loop, name="scheduler-daemon", daemon=True)
+    _daemon_thread.start()
+    log.info("Scheduler daemon arrancado en hilo background.")
+
+
+# ── Entry point CLI ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import schedule
@@ -584,18 +631,15 @@ if __name__ == "__main__":
         run_weekly_summary()
 
     elif "--daemon" in sys.argv:
-        log.info(f"Modo daemon — scraping diario a las {SCRAPING_HOUR}, "
-                 f"resumen semanal los {WEEKLY_SUMMARY_DAY}.")
-
-        schedule.every().day.at(SCRAPING_HOUR).do(run_all_scrapers)
-        getattr(schedule.every(), WEEKLY_SUMMARY_DAY).at("08:30").do(run_weekly_summary)
-
-        # Ejecutar inmediatamente al arrancar para no esperar al primer ciclo
-        run_all_scrapers()
-
+        log.info("Modo daemon CLI — horario fijo (06:00 / 06:30 / 07:00 / mié 08:00).")
+        schedule.every().day.at("06:00").do(run_scrapers_task)
+        schedule.every().day.at("06:30").do(run_detect_alerts_task)
+        schedule.every().day.at("07:00").do(run_send_alerts_task)
+        schedule.every().wednesday.at("08:00").do(run_weekly_summary)
+        run_scrapers_task()
         while True:
             schedule.run_pending()
-            time.sleep(60)
+            time.sleep(30)
 
     else:
         run_all_scrapers()

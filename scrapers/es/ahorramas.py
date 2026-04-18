@@ -16,28 +16,22 @@ class AhorramasScraper(PlaywrightBaseScraper):
     PAIS = "ES"
 
     _SEARCH_URL_TEMPLATE = "https://www.ahorramas.com/search?q={query}"
-    _WAIT_SELECTOR = ".product-card, .product-item, [data-id-product]"
+    _WAIT_SELECTOR = ".product-tile"
     _PRODUCT_SELECTORS = [
-        ".product-card",
-        ".product-item",
-        "[data-id-product]",
-        ".product-miniature",
-        "article.product",
+        ".product-tile",
+        ".product-container",
     ]
     _NAME_SELECTORS = [
-        ".product-title a",
-        ".product-name a",
-        "h3 a",
-        "h2 a",
-        "a.product-title",
-        ".name",
+        ".pdp-link .link",
+        "a.link.product-name-gtm",
+        ".pdp-link a",
+        ".tile-body a",
     ]
     _PRICE_SELECTORS = [
+        ".sales .value",
+        ".price .sales",
+        ".value",
         ".price",
-        ".current-price span",
-        ".product-price",
-        "[data-price]",
-        "span.price",
     ]
     _COOKIE_SELECTOR = "#onetrust-accept-btn-handler"
     _MIN_SCORE = 0.25

@@ -6,7 +6,7 @@ can read it as a query parameter — same pattern as geolocation.
 
 Supported: Chrome, Edge (Chromium). Firefox and Safari have no support.
 """
-import streamlit.components.v1 as components
+import streamlit as st
 
 
 def render_voice_button(lang: str = "es-ES", button_id: str = "voice-btn") -> None:
@@ -17,7 +17,7 @@ def render_voice_button(lang: str = "es-ES", button_id: str = "voice-btn") -> No
         lang:      BCP-47 language tag ('es-ES' or 'pt-PT').
         button_id: HTML id for the button (override when multiple on a page).
     """
-    components.html(
+    st.html(
         f"""
         <script>
         function startVoice_{button_id.replace('-', '_')}() {{
@@ -73,8 +73,7 @@ def render_voice_button(lang: str = "es-ES", button_id: str = "voice-btn") -> No
                        white-space:nowrap">
             🎤 Voz
         </button>
-        """,
-        height=42,
+        """
     )
 
 

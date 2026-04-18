@@ -44,7 +44,7 @@ class UsuariosRepo:
         self._set_config(usuario_id, "notificaciones_email", "true" if activo else "false")
 
     def get_usuarios_con_notificaciones(self) -> list[dict]:
-        """Devuelve usuarios con notificaciones activas y su email."""
+        """Devuelve usuarios activos, verificados y con notificaciones email activadas."""
         with get_connection() as conn:
             rows = conn.execute(
                 """
@@ -55,9 +55,18 @@ class UsuariosRepo:
                  AND cu.clave = 'notificaciones_email'
                  AND cu.valor = 'true'
                 WHERE u.activo = TRUE
+                  AND u.email_verificado = TRUE
                 """
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def set_activo(self, usuario_id: str, activo: bool) -> None:
+        """Activa o desactiva un usuario (admin)."""
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE usuarios SET activo = %s WHERE id = %s",
+                (activo, usuario_id),
+            )
 
     def update_favoritos(self, usuario_id: str, codigos: list[str]) -> None:
         """Guarda la lista de supermercados favoritos del usuario."""
