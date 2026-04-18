@@ -84,7 +84,8 @@ def optimize_for_user(
 
         # Cheapest option today
         cheapest = min(opciones, key=lambda o: o["precio"])
-        precio_max = max(o["precio"] for o in opciones)
+        precio_unit = float(cheapest["precio"])
+        precio_max = float(max(o["precio"] for o in opciones))
 
         plan.append(
             OptimizerItem(
@@ -93,11 +94,11 @@ def optimize_for_user(
                 producto_nombre=cheapest["producto_nombre"],
                 supermercado_nombre=cheapest["supermercado_nombre"],
                 supermercado_codigo=cheapest["supermercado_codigo"],
-                precio_unitario=round(cheapest["precio"], 2),
-                precio_total=round(cheapest["precio"] * cantidad, 2),
+                precio_unitario=round(precio_unit, 2),
+                precio_total=round(precio_unit * cantidad, 2),
                 precio_kilo=cheapest.get("precio_por_unidad_normalizado"),
                 url_producto=None,
-                ahorro_vs_caro=round((precio_max - cheapest["precio"]) * cantidad, 2),
+                ahorro_vs_caro=round((precio_max - precio_unit) * cantidad, 2),
             )
         )
 
@@ -267,7 +268,7 @@ def _cost_per_single_supermarket(
             if precio is None:
                 all_covered = False
                 break
-            total += precio * cantidad
+            total += float(precio) * cantidad
         if all_covered:
             totals[codigo] = round(total, 2)
 
