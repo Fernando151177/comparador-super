@@ -204,12 +204,12 @@ def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> N
 
     for item in items:
         q = item["query_texto"]
-        qty = item["cantidad"]
+        qty = int(item["cantidad"])
         row_data = comparison.get(q, {})
 
         # Precio mas barato entre los supermercados
         min_price = min(
-            (row_data[s]["precio"] for s in supers if s in row_data),
+            (float(row_data[s]["precio"]) for s in supers if s in row_data),
             default=None,
         )
 
@@ -221,7 +221,7 @@ def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> N
             with row_cols[i + 1]:
                 if s in row_data:
                     p = row_data[s]
-                    precio_unit = p["precio"]
+                    precio_unit = float(p["precio"])
                     precio_kg = p.get("precio_por_unidad_normalizado")
                     unidad = p.get("unidad_normalizacion") or "kg"
 
