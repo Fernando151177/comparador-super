@@ -439,15 +439,16 @@ def _ahorro_semana(usuario_id: str) -> float:
     return float(row["total"]) if row else 0.0
 
 
-def _proximo_dia(dia_compra: str | None) -> str:
-    """Devuelve el día de la semana de la próxima compra."""
-    dias_es = {
-        "MONDAY":    "Lunes",
-        "TUESDAY":   "Martes",
-        "WEDNESDAY": "Miércoles",
-        "THURSDAY":  "Jueves",
-        "FRIDAY":    "Viernes",
-        "SATURDAY":  "Sábado",
-        "SUNDAY":    "Domingo",
-    }
-    return dias_es.get((dia_compra or "SATURDAY").upper(), "Sábado")
+def _proximo_dia(dia_compra) -> str:
+    """Devuelve el día de la semana de la próxima compra.
+    dia_compra puede ser int (0=Lun…6=Dom) o str ('SATURDAY').
+    """
+    if isinstance(dia_compra, int):
+        return ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"][dia_compra % 7]
+    if isinstance(dia_compra, str):
+        dias_es = {
+            "MONDAY": "Lunes", "TUESDAY": "Martes", "WEDNESDAY": "Miércoles",
+            "THURSDAY": "Jueves", "FRIDAY": "Viernes", "SATURDAY": "Sábado", "SUNDAY": "Domingo",
+        }
+        return dias_es.get(dia_compra.upper(), "Sábado")
+    return "Sábado"
