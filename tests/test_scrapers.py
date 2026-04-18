@@ -29,15 +29,17 @@ def test_todos_los_scrapers_tienen_atributos():
 
 def test_numero_scrapers():
     from scrapers import ALL_SCRAPERS, ALL_SCRAPERS_ES, ALL_SCRAPERS_PT
-    assert len(ALL_SCRAPERS) == 15
-    assert len(ALL_SCRAPERS_ES) == 8
+    # ES: Lidl + Mercadona (API) + 5 FACUA (Carrefour/Alcampo/Hipercor/Día/Eroski)
+    #     + Ahorramas + Cash Family (Playwright)
+    assert len(ALL_SCRAPERS_ES) == 9
     assert len(ALL_SCRAPERS_PT) == 7
+    assert len(ALL_SCRAPERS) == len(ALL_SCRAPERS_ES) + len(ALL_SCRAPERS_PT)
 
 
 # ── Normalización y similitud (sin red) ──────────────────────────────────────
 
 def test_mercadona_normalize():
-    from scrapers.es.mercadona import _normalize
+    from scrapers.es.mercadona import _norm as _normalize
     assert _normalize("Léche Ëntera") == "leche entera"
     assert _normalize("ACEITE DE OLIVA") == "aceite de oliva"
     assert _normalize("  pan  ") == "pan"
@@ -121,7 +123,7 @@ def test_get_info_inexistente():
 def test_get_by_pais_es():
     from ordering.supermarket_links import get_by_pais
     es = get_by_pais("ES")
-    assert len(es) == 8
+    assert len(es) == 9  # +Eroski respecto al conteo anterior
     assert all(s["pais"] == "ES" for s in es)
 
 
@@ -135,7 +137,7 @@ def test_get_by_pais_pt():
 def test_get_by_pais_ambos():
     from ordering.supermarket_links import get_by_pais
     ambos = get_by_pais("AMBOS")
-    assert len(ambos) == 15
+    assert len(ambos) == 16  # 9 ES + 7 PT
 
 
 # ── Cart builder (sin DB, sin red) ────────────────────────────────────────────
@@ -172,6 +174,44 @@ def test_format_cart_text():
 
 
 # ── Integration tests (requieren red y DB) ────────────────────────────────────
+
+@pytest.mark.integration
+def test_integration_facua_mercadona():
+    """Prueba real contra FACUA — Mercadona leche."""
+    from scrapers.es.facua import FACUAMercadonaScraper
+
+    scraper = FACUAMercadonaScraper()
+    results = scraper.scrape_products(["leche entera"])
+    assert len(results) >= 1
+    r = results[0]
+    assert r.precio > 0
+    assert r.nombre
+    assert "leche" in r.nombre.lower()
+
+
+@pytest.mark.integration
+def test_integration_facua_carrefour():
+    """Prueba real contra FACUA — Carrefour aceite de girasol."""
+    from scrapers.es.facua import FACUACarrefourScraper
+
+    scraper = FACUACarrefourScraper()
+    results = scraper.scrape_products(["aceite de girasol"])
+    assert len(results) >= 1
+    assert results[0].precio > 0
+
+
+@pytest.mark.integration
+def test_integration_ahorramas_playwright():
+    """Prueba real contra Ahorramas con Playwright."""
+    from scrapers.es.ahorramas import AhorramasScraper
+
+    scraper = AhorramasScraper()
+    results = scraper.scrape_products(["leche entera"])
+    # Puede devolver [] si Playwright no está instalado; no falla
+    assert isinstance(results, list)
+    if results:
+        assert results[0].precio > 0
+
 
 @pytest.mark.integration
 def test_integration_lidl_scraper():

@@ -96,6 +96,16 @@ SUPERMARKET_INFO: dict[str, dict] = {
         "click_collect": False,
         "notes": "Sin tienda online — compra presencial.",
     },
+    "EROSKI_ES": {
+        "nombre": "Eroski",
+        "pais": "ES",
+        "online_url": "https://www.eroski.es/compra-online",
+        "search_url": "https://www.eroski.es/compra-online/buscar?q={query}",
+        "min_order_eur": 30.0,
+        "delivery_eur": 4.95,
+        "click_collect": True,
+        "notes": "Tienda online disponible en zonas del norte de España.",
+    },
     # ── Portugal ──────────────────────────────────────────────────────────────
     "CONTINENTE_PT": {
         "nombre": "Continente",

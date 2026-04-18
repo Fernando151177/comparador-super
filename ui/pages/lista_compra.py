@@ -286,11 +286,8 @@ def _render_comparison(items: list[dict], prices: list[dict], usuario=None) -> N
             pct = int(n / total_items * 100) if total_items else 0
             st.metric(s, f"{n}/{total_items}", f"{pct}% encontrado")
 
-    if len(supers) <= 2:
-        st.caption(
-            "ℹ️ Solo aparecen Mercadona y Lidl porque Carrefour, Alcampo, Día e Hipercor "
-            "bloquean peticiones automáticas desde servidores en la nube (Cloudflare)."
-        )
+    if len(supers) == 0:
+        st.caption("ℹ️ Pulsa «Consultar supermercados ahora» para obtener precios.")
 
 
 # ── Menu Opciones ─────────────────────────────────────────────────────────────
@@ -399,8 +396,8 @@ def _run_scrapers_button(usuario: Usuario) -> None:
             st.rerun()
     with col_info:
         st.caption(
-            "Actualiza precios de Mercadona y Lidl en tiempo real. "
-            "Carrefour, Alcampo, Día e Hipercor bloquean peticiones automáticas desde servidores en la nube."
+            "Consulta Mercadona, Lidl y FACUA (Carrefour, Alcampo, Hipercor, Día, Eroski) "
+            "en tiempo real. Ahorramas vía Playwright stealth."
         )
     st.markdown("---")
 
@@ -437,10 +434,11 @@ def _run_scrapers(usuario: Usuario) -> None:
     errores = []
     bar = st.progress(0, text="Iniciando...")
 
-    _SCRAPER_TIMEOUT = 90
+    from scrapers.playwright_base import PlaywrightBaseScraper
 
     for i, cls in enumerate(scraper_classes):
         scraper = cls()
+        _SCRAPER_TIMEOUT = 180 if isinstance(scraper, PlaywrightBaseScraper) else 90
         bar.progress((i + 1) / len(scraper_classes), text=f"Consultando {scraper.NOMBRE}...")
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:

@@ -7,6 +7,15 @@ from scrapers.es.dia import DiaScraper
 from scrapers.es.hipercor import HipercorScraper
 from scrapers.es.ahorramas import AhorramasScraper
 from scrapers.es.cash_family import CashFamilyScraper
+from scrapers.es.facua import (
+    FACUABaseScraper,
+    FACUAMercadonaScraper,
+    FACUACarrefourScraper,
+    FACUAAlcampoScraper,
+    FACUAHipercorScraper,
+    FACUADiaScraper,
+    FACUAEroskiScraper,
+)
 
 __all__ = [
     "MercadonaESScraper",
@@ -17,4 +26,11 @@ __all__ = [
     "HipercorScraper",
     "AhorramasScraper",
     "CashFamilyScraper",
+    "FACUABaseScraper",
+    "FACUAMercadonaScraper",
+    "FACUACarrefourScraper",
+    "FACUAAlcampoScraper",
+    "FACUAHipercorScraper",
+    "FACUADiaScraper",
+    "FACUAEroskiScraper",
 ]
