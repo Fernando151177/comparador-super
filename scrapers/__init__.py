@@ -26,20 +26,24 @@ from scrapers.pt import (
 )
 
 # Lista activa para el scheduler y comparaciones
+# Estrategia: FACUA como fuente primaria (datos reales verificados, sin bloqueo)
+# + Mercadona API y Lidl API para catálogo completo
+# Scrapers bloqueados por Cloudflare (CarrefourES, Alcampo, Día, Hipercor) desactivados
 ALL_SCRAPERS_ES = [
-    LidlESScraper,           # API pública — funciona desde Streamlit Cloud
-    MercadonaESScraper,      # API interna — catálogo completo
-    CarrefourESScraper,      # API REST Carrefour — catálogo alimentación
-    AlcampoScraper,          # SFCC API Alcampo
-    DiaScraper,              # SAP Hybris API Día
-    HipercorScraper,         # El Corte Inglés API Hipercor
-    FACUACarrefourScraper,   # FACUA — datos verificados básicos (fallback)
-    FACUAAlcampoScraper,     # FACUA — datos verificados básicos (fallback)
-    FACUAHipercorScraper,    # FACUA — datos verificados básicos (fallback)
-    FACUADiaScraper,         # FACUA — datos verificados básicos (fallback)
-    FACUAEroskiScraper,      # FACUA — datos verificados, sin bloqueo
-    AhorramasScraper,        # Playwright stealth
-    CashFamilyScraper,       # Playwright stealth (sin tienda online activa)
+    LidlESScraper,           # API pública — catálogo completo, fiable
+    MercadonaESScraper,      # API interna — catálogo completo, fiable
+    FACUAMercadonaScraper,   # FACUA — precios verificados Mercadona (4 categorías)
+    FACUACarrefourScraper,   # FACUA — precios verificados Carrefour (4 categorías)
+    FACUAAlcampoScraper,     # FACUA — precios verificados Alcampo (4 categorías)
+    FACUAHipercorScraper,    # FACUA — precios verificados Hipercor (4 categorías)
+    FACUADiaScraper,         # FACUA — precios verificados Día (4 categorías)
+    FACUAEroskiScraper,      # FACUA — precios verificados Eroski (4 categorías)
+    # CarrefourESScraper    → bloqueado por Cloudflare
+    # AlcampoScraper        → bloqueado por Cloudflare
+    # DiaScraper            → bloqueado por Cloudflare
+    # HipercorScraper       → bloqueado por Cloudflare
+    # AhorramasScraper      → requiere Playwright (no disponible en Cloud)
+    # CashFamilyScraper     → sin tienda online activa
 ]
 
 ALL_SCRAPERS_PT = [
