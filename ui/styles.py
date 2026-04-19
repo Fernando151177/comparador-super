@@ -345,46 +345,65 @@ hr { border-color: #E0E0E0 !important; margin: 20px 0 !important; }
 }
 
 /* ══════════════════════════════════════
-   BOTTOM NAV BAR (solo móvil)
+   BOTTOM NAV BAR — radio nativo fijado al fondo (solo móvil)
+   Funciona sin recargar página → session_state se preserva
    ══════════════════════════════════════ */
-#ssi-bottom-nav { display: none; }
 
+/* Ocultar en escritorio */
+@media (min-width: 769px) {
+    .element-container:has(.ssi-mobile-nav-anchor) + div { display: none !important; }
+}
+
+/* Fijar al fondo en móvil */
 @media (max-width: 768px) {
-    #ssi-bottom-nav {
-        display: flex;
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 62px;
-        background: linear-gradient(180deg, #1B5E20 0%, #2E7D32 100%);
-        z-index: 9999;
-        align-items: stretch;
-        box-shadow: 0 -2px 16px rgba(0,0,0,.30);
+    /* Contenedor del radio */
+    .element-container:has(.ssi-mobile-nav-anchor) + div {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 9999 !important;
+        background: linear-gradient(180deg, #1B5E20 0%, #2E7D32 100%) !important;
+        padding: 6px 0 4px !important;
+        box-shadow: 0 -2px 16px rgba(0,0,0,.28) !important;
+        margin: 0 !important;
     }
-    #ssi-bottom-nav a {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        color: rgba(255,255,255,0.65);
-        text-decoration: none;
-        font-size: 11px;
-        font-weight: 600;
-        gap: 3px;
-        transition: background 0.15s;
-        min-height: 44px;
-        -webkit-tap-highlight-color: transparent;
+    /* Radio group horizontal */
+    .element-container:has(.ssi-mobile-nav-anchor) + div [role="radiogroup"] {
+        display: flex !important;
+        justify-content: space-around !important;
+        gap: 0 !important;
+        width: 100% !important;
     }
-    #ssi-bottom-nav a .nav-icon {
-        font-size: 22px;
-        line-height: 1;
+    /* Cada opción */
+    .element-container:has(.ssi-mobile-nav-anchor) + div label {
+        flex: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-height: 50px !important;
+        cursor: pointer !important;
+        -webkit-tap-highlight-color: transparent !important;
+        padding: 4px 0 !important;
+        border-radius: 0 !important;
     }
-    #ssi-bottom-nav a.active,
-    #ssi-bottom-nav a:active {
-        color: #FFFFFF;
-        background: rgba(255,255,255,0.15);
+    /* Texto del icono */
+    .element-container:has(.ssi-mobile-nav-anchor) + div label span {
+        font-size: 24px !important;
+        color: rgba(255,255,255,0.70) !important;
+        line-height: 1 !important;
+    }
+    /* Opción activa */
+    .element-container:has(.ssi-mobile-nav-anchor) + div label:has(input:checked) span {
+        color: #FFFFFF !important;
+    }
+    .element-container:has(.ssi-mobile-nav-anchor) + div label:has(input:checked) {
+        background: rgba(255,255,255,0.15) !important;
+    }
+    /* Ocultar el círculo nativo del radio */
+    .element-container:has(.ssi-mobile-nav-anchor) + div input[type="radio"] {
+        display: none !important;
     }
 }
 """
@@ -393,30 +412,6 @@ hr { border-color: #E0E0E0 !important; margin: 20px 0 !important; }
 def inject_css() -> None:
     st.markdown(_FONT_LINK, unsafe_allow_html=True)
     st.markdown(f"<style>{_CSS}</style>", unsafe_allow_html=True)
-
-
-# ── Barra de navegación inferior ─────────────────────────────────────────────
-
-_NAV_ITEMS = [
-    ("🏠", "Inicio",    "home"),
-    ("📋", "Lista",     "lista"),
-    ("🎯", "Optimizar", "optimizer"),
-    ("🔔", "Alertas",   "alerts"),
-    ("👤", "Perfil",    "profile"),
-]
-
-
-def render_mobile_nav(current_page: str) -> None:
-    items_html = ""
-    for icon, label, key in _NAV_ITEMS:
-        active = 'class="active"' if key == current_page else ""
-        items_html += (
-            f'<a href="?nav={key}" {active}>'
-            f'<span class="nav-icon">{icon}</span>'
-            f'<span>{label}</span>'
-            f'</a>'
-        )
-    st.markdown(f'<div id="ssi-bottom-nav">{items_html}</div>', unsafe_allow_html=True)
 
 
 # ── Component helpers ─────────────────────────────────────────────────────────

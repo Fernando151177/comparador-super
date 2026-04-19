@@ -144,18 +144,26 @@ _PAGES = [
 if _ADMIN_EMAIL and usuario.email.lower() == _ADMIN_EMAIL.lower():
     _PAGES.append(("🔧 Admin",  "admin"))
 
-# Navegación desde barra inferior móvil (query param ?nav=xxx)
-_nav_param = st.query_params.get("nav", "")
-_page_keys  = [p[1] for p in _PAGES]
-_nav_index  = _page_keys.index(_nav_param) if _nav_param in _page_keys else 0
+_page_keys = [p[1] for p in _PAGES]
 
+# Inicializar página en session_state (persiste entre reruns sin recargar)
+if "page" not in st.session_state:
+    st.session_state["page"] = "home"
+
+# Sidebar desktop
+_sidebar_idx = _page_keys.index(st.session_state["page"]) if st.session_state["page"] in _page_keys else 0
 pagina = st.sidebar.radio(
     "Navegación",
     [p[0] for p in _PAGES],
-    index=_nav_index,
+    index=_sidebar_idx,
     label_visibility="collapsed",
 )
-page_key = dict(_PAGES)[pagina]
+_sidebar_key = dict(_PAGES)[pagina]
+if _sidebar_key != st.session_state["page"]:
+    st.session_state["page"] = _sidebar_key
+    st.rerun()
+
+page_key = st.session_state["page"]
 
 # ── Selector de país en la barra lateral ─────────────────────────────────────
 st.sidebar.markdown("---")
@@ -190,9 +198,31 @@ if st.sidebar.button("🚪 Cerrar sesión"):
     st.session_state.clear()
     st.rerun()
 
-# ── Barra de navegación inferior (móvil) ─────────────────────────────────────
-from ui.styles import render_mobile_nav
-render_mobile_nav(page_key)
+# ── Barra de navegación inferior (móvil) — radio nativo, sin recarga ─────────
+_MOB_PAGES = [
+    ("🏠", "home"),
+    ("📋", "lista"),
+    ("🎯", "optimizer"),
+    ("🔔", "alerts"),
+    ("👤", "profile"),
+]
+_mob_labels = [icon for icon, _ in _MOB_PAGES]
+_mob_keys   = [key  for _, key  in _MOB_PAGES]
+_mob_idx    = _mob_keys.index(page_key) if page_key in _mob_keys else 0
+
+st.markdown('<div class="ssi-mobile-nav-anchor"></div>', unsafe_allow_html=True)
+_mob_sel = st.radio(
+    "nav_mobile",
+    _mob_labels,
+    index=_mob_idx,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="__mobile_nav__",
+)
+_mob_key = _mob_keys[_mob_labels.index(_mob_sel)]
+if _mob_key != page_key:
+    st.session_state["page"] = _mob_key
+    st.rerun()
 
 # ── Enrutar a la página correspondiente ──────────────────────────────────────
 if page_key == "home":
