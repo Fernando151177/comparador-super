@@ -10,5 +10,3 @@ python-dotenv>=1.0.1
 schedule>=1.2.1
 Pillow>=10.2.0
 pyzbar>=0.1.9
-playwright>=1.40.0
-playwright-stealth>=1.0.6

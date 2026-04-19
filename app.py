@@ -18,17 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import streamlit as st
 
 
-@st.cache_resource(show_spinner=False)
-def _install_playwright_browsers() -> None:
-    """Instala Chromium la primera vez (Streamlit Cloud no lo incluye)."""
-    import subprocess
-    subprocess.run(
-        [sys.executable, "-m", "playwright", "install", "chromium"],
-        check=False, capture_output=True,
-    )
-
-_install_playwright_browsers()
-
 # ── Siembra los supermercados si todavía no están en Supabase ─────────────────
 from database.init_db import init_db
 init_db()
