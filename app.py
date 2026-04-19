@@ -144,9 +144,15 @@ _PAGES = [
 if _ADMIN_EMAIL and usuario.email.lower() == _ADMIN_EMAIL.lower():
     _PAGES.append(("🔧 Admin",  "admin"))
 
+# Navegación desde barra inferior móvil (query param ?nav=xxx)
+_nav_param = st.query_params.get("nav", "")
+_page_keys  = [p[1] for p in _PAGES]
+_nav_index  = _page_keys.index(_nav_param) if _nav_param in _page_keys else 0
+
 pagina = st.sidebar.radio(
     "Navegación",
     [p[0] for p in _PAGES],
+    index=_nav_index,
     label_visibility="collapsed",
 )
 page_key = dict(_PAGES)[pagina]
@@ -183,6 +189,10 @@ if st.sidebar.button("🚪 Cerrar sesión"):
         cerrar_sesion(token)
     st.session_state.clear()
     st.rerun()
+
+# ── Barra de navegación inferior (móvil) ─────────────────────────────────────
+from ui.styles import render_mobile_nav
+render_mobile_nav(page_key)
 
 # ── Enrutar a la página correspondiente ──────────────────────────────────────
 if page_key == "home":
