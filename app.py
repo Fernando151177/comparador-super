@@ -146,25 +146,12 @@ _PAGES = [
 if _ADMIN_EMAIL and usuario.email.lower() == _ADMIN_EMAIL.lower():
     _PAGES.append(("🔧 Admin",  "admin"))
 
-_page_keys = [p[1] for p in _PAGES]
-
-# Inicializar página en session_state (persiste entre reruns sin recargar)
-if "page" not in st.session_state:
-    st.session_state["page"] = "home"
-
-# Sidebar desktop — sin st.rerun() extra
-_sidebar_idx = _page_keys.index(st.session_state["page"]) if st.session_state["page"] in _page_keys else 0
 pagina = st.sidebar.radio(
     "Navegación",
     [p[0] for p in _PAGES],
-    index=_sidebar_idx,
     label_visibility="collapsed",
 )
-_sidebar_key = dict(_PAGES)[pagina]
-if _sidebar_key != st.session_state["page"]:
-    st.session_state["page"] = _sidebar_key
-
-page_key = st.session_state["page"]
+page_key = dict(_PAGES)[pagina]
 
 # ── Selector de país en la barra lateral ─────────────────────────────────────
 st.sidebar.markdown("---")
@@ -199,6 +186,27 @@ if st.sidebar.button("🚪 Cerrar sesión"):
     st.session_state.clear()
     st.rerun()
 
+
+# ── Botón menú visible en móvil ──────────────────────────────────────────────
+st.markdown(
+    """
+    <button onclick="
+        var btn = window.parent.document.querySelector('[data-testid=stSidebarCollapsedControl] button')
+                  || window.parent.document.querySelector('[data-testid=collapsedControl] button');
+        if(btn) btn.click();
+    " style="
+        display:none;
+        position:fixed;top:12px;right:12px;z-index:9998;
+        background:#1B5E20;color:white;border:none;border-radius:8px;
+        padding:10px 14px;font-size:20px;cursor:pointer;
+        box-shadow:0 2px 8px rgba(0,0,0,.3);
+    " id="ssi-menu-btn">☰</button>
+    <style>
+    @media(max-width:768px){ #ssi-menu-btn{ display:block !important; } }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ── Enrutar a la página correspondiente ──────────────────────────────────────
 if page_key == "home":
