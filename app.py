@@ -18,13 +18,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import streamlit as st
 
 
-# ── Siembra los supermercados si todavía no están en Supabase ─────────────────
-from database.init_db import init_db
-init_db()
+# ── Siembra los supermercados UNA sola vez (cacheado, no en cada rerun) ───────
+@st.cache_resource
+def _init_once():
+    from database.init_db import init_db
+    from utils.scheduler import start_daemon
+    init_db()
+    start_daemon()
 
-# ── Scheduler de alertas en background (daemon) ───────────────────────────────
-from utils.scheduler import start_daemon as _start_daemon
-_start_daemon()
+_init_once()
 
 # ── Configuración de la página ────────────────────────────────────────────────
 st.set_page_config(
@@ -197,28 +199,6 @@ if st.sidebar.button("🚪 Cerrar sesión"):
     st.session_state.clear()
     st.rerun()
 
-# ── Barra de navegación móvil — botones nativos (1 solo rerun, sin reload) ───
-_MOB_PAGES = [
-    ("🏠", "Inicio",    "home"),
-    ("📋", "Lista",     "lista"),
-    ("🎯", "Optimizar", "optimizer"),
-    ("🔔", "Alertas",   "alerts"),
-    ("👤", "Perfil",    "profile"),
-]
-st.markdown('<div class="ssi-mobile-nav-bar">', unsafe_allow_html=True)
-_mcols = st.columns(5)
-for _i, (_icon, _label, _key) in enumerate(_MOB_PAGES):
-    with _mcols[_i]:
-        _active = page_key == _key
-        if st.button(
-            f"{_icon}\n{_label}",
-            key=f"__mnav_{_key}__",
-            use_container_width=True,
-            type="primary" if _active else "secondary",
-        ):
-            st.session_state["page"] = _key
-            page_key = _key
-st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Enrutar a la página correspondiente ──────────────────────────────────────
 if page_key == "home":

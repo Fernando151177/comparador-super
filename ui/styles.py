@@ -319,86 +319,13 @@ hr { border-color: #E0E0E0 !important; margin: 20px 0 !important; }
    MOBILE OVERRIDES
    ══════════════════════════════════════ */
 @media (max-width: 768px) {
-    /* Ocultar sidebar en móvil */
-    section[data-testid="stSidebar"]          { display: none !important; }
-    [data-testid="collapsedControl"]           { display: none !important; }
-
-    /* Espacio inferior para barra nav */
     .main .block-container {
-        padding-bottom: 80px !important;
         padding-left: 12px !important;
         padding-right: 12px !important;
     }
-
-    /* Texto mínimo 16px */
-    p, span, div, label { font-size: 16px !important; }
-    .stCaption p        { font-size: 13px !important; }
-
-    /* Métricas más compactas */
     [data-testid="stMetricValue"] { font-size: 1.3rem !important; }
-
-    /* Columnas con scroll horizontal para tablas */
-    [data-testid="stHorizontalBlock"] {
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-    }
 }
 
-/* ══════════════════════════════════════
-   BOTTOM NAV BAR — botones nativos fijos al fondo (solo móvil)
-   Un solo rerun por clic, sin recarga de página
-   ══════════════════════════════════════ */
-
-/* Ocultar en escritorio */
-@media (min-width: 769px) {
-    .ssi-mobile-nav-bar,
-    .element-container:has(.ssi-mobile-nav-bar),
-    .element-container:has(.ssi-mobile-nav-bar) ~ .element-container:first-of-type {
-        display: none !important;
-    }
-}
-
-/* Fijar al fondo en móvil */
-@media (max-width: 768px) {
-    /* Anclar el bloque de columnas al fondo */
-    .element-container:has(.ssi-mobile-nav-bar) + div[data-testid="stHorizontalBlock"],
-    .element-container:has(.ssi-mobile-nav-bar) + div {
-        position: fixed !important;
-        bottom: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        z-index: 9999 !important;
-        background: linear-gradient(180deg, #1B5E20 0%, #2E7D32 100%) !important;
-        padding: 4px 6px !important;
-        box-shadow: 0 -2px 16px rgba(0,0,0,.28) !important;
-        margin: 0 !important;
-    }
-    /* Botones de la nav: quitar estilos por defecto */
-    .element-container:has(.ssi-mobile-nav-bar) + div button {
-        background: transparent !important;
-        border: none !important;
-        color: rgba(255,255,255,0.70) !important;
-        font-size: 11px !important;
-        font-weight: 600 !important;
-        min-height: 54px !important;
-        padding: 6px 2px !important;
-        box-shadow: none !important;
-        white-space: pre-line !important;
-        line-height: 1.3 !important;
-    }
-    /* Botón activo (type=primary) */
-    .element-container:has(.ssi-mobile-nav-bar) + div button[kind="primary"] {
-        background: rgba(255,255,255,0.18) !important;
-        color: #FFFFFF !important;
-        border-radius: 10px !important;
-        box-shadow: none !important;
-    }
-    /* Hover / tap */
-    .element-container:has(.ssi-mobile-nav-bar) + div button:active {
-        background: rgba(255,255,255,0.12) !important;
-        transform: none !important;
-    }
-}
 """
 
 
